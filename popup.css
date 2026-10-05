@@ -1,0 +1,222 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #16181d;
+  --muted: #5f6572;
+  --line: #e4e7ec;
+  --card: #f7f8fa;
+  --accent: #1a73e8;
+  --ok: #128a48;
+  --warn: #b7791f;
+  --err: #c5352c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17191d;
+    --fg: #e9ebef;
+    --muted: #9aa1ad;
+    --line: #2c3037;
+    --card: #1e2126;
+    --accent: #5a9cff;
+    --ok: #4ac97e;
+    --warn: #e0ab4a;
+    --err: #ef6a60;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  /* Chrome caps popups at 800x600, so sit just inside that and put the log
+     beside the controls rather than below them. */
+  width: 762px;
+  margin: 0;
+  padding: 14px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.45 -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+/* min-width:0 stops long log lines from stretching the grid track. */
+.col { min-width: 0; }
+
+/* The controls may outgrow the popup; let them scroll on their own so the
+   activity column stays put and never needs scrolling to reach. */
+.col-controls {
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+h1 { font-size: 14px; font-weight: 600; margin: 0; white-space: nowrap; }
+
+.dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted); flex: none;
+}
+.dot.on { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+
+.pill {
+  font-size: 11px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 2px 8px; white-space: nowrap;
+}
+.pill.bad { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, var(--line)); }
+
+.status {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--muted);
+  border-radius: 8px;
+  padding: 9px 11px;
+  margin-bottom: 10px;
+  background: var(--card);
+}
+.status.running { border-left-color: var(--ok); }
+.status.error { border-left-color: var(--err); }
+
+.status-main { font-weight: 600; font-variant-numeric: tabular-nums; }
+.status-sub { color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-word; }
+
+button { font: inherit; cursor: pointer; border-radius: 7px; }
+
+.primary {
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.primary:hover { filter: brightness(1.07); }
+.primary.stop { background: var(--err); }
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 11px;
+  margin-bottom: 10px;
+}
+
+.row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.row label { flex: none; width: 74px; color: var(--muted); }
+
+.interval { display: flex; align-items: center; gap: 6px; }
+.sep, .unit { color: var(--muted); font-size: 12px; }
+
+input[type="number"], select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 6px;
+  width: 62px;
+}
+select { width: auto; flex: 1; }
+input.small { width: 62px; }
+input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: -1px; }
+
+.hint { color: var(--muted); font-size: 11px; margin: -2px 0 10px 82px; }
+
+.check {
+  display: flex; align-items: center; gap: 7px;
+  color: var(--muted); font-size: 12px; margin-top: 6px; cursor: pointer;
+}
+.check input { accent-color: var(--accent); margin: 0; }
+
+.stats {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 5px; margin-bottom: 10px;
+}
+.stats div {
+  border: 1px solid var(--line); border-radius: 7px;
+  padding: 6px 2px; text-align: center;
+}
+.stats strong { display: block; font-size: 15px; font-variant-numeric: tabular-nums; }
+.stats span { color: var(--muted); font-size: 10px; }
+
+.actions { display: flex; gap: 8px; margin-bottom: 12px; }
+.ghost {
+  flex: 1; padding: 6px 8px;
+  border: 1px solid var(--line); background: transparent; color: var(--fg);
+  font-size: 12px;
+}
+.ghost:hover { background: var(--card); }
+.ghost:disabled { opacity: .5; cursor: default; }
+
+.log-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0; font-weight: 600; }
+
+.link {
+  border: none; background: none; color: var(--muted);
+  font-size: 11px; padding: 0; text-decoration: underline;
+}
+.link:hover { color: var(--fg); }
+
+.log {
+  list-style: none; margin: 0; padding: 0;
+  max-height: 396px; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: 7px;
+}
+.log li {
+  display: flex; gap: 9px;
+  padding: 6px 10px; font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.log li:last-child { border-bottom: none; }
+.log time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+.log .msg { word-break: break-word; min-width: 0; }
+.log .ok .msg { color: var(--ok); }
+.log .warn .msg { color: var(--warn); }
+.log .err .msg { color: var(--err); }
+.log .empty { color: var(--muted); justify-content: center; }
+
+.alertbox {
+  border: 1px solid color-mix(in srgb, var(--err) 45%, var(--line));
+  border-left: 3px solid var(--err);
+  background: color-mix(in srgb, var(--err) 8%, transparent);
+  border-radius: 8px;
+  padding: 9px 11px;
+  margin-bottom: 10px;
+}
+.alertbox strong { display: block; color: var(--err); font-size: 12px; }
+.alertbox p { margin: 3px 0 0; font-size: 12px; word-break: break-word; }
+.alertbox .alert-hint { color: var(--muted); font-size: 11px; margin-top: 5px; }
+
+.hint-wide { margin-left: 24px; }
+
+.log-actions { display: flex; gap: 10px; }
+
+.card-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); margin: 0 0 7px; font-weight: 600;
+}
+
+.row.hours { margin: 6px 0 0 24px; }
+.row.hours input[type="time"] {
+  font: inherit; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 4px 6px; width: auto;
+}
+.row.hours input:disabled { opacity: .45; }
+
+.hint.warn { color: var(--warn); margin: 7px 0 0; }

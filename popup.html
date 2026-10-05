@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="dot" id="dot"></span>
+      <h1>Draft Drip Sender</h1>
+    </div>
+    <span class="pill" id="tabPill">checking…</span>
+  </header>
+
+  <div class="layout">
+    <div class="col col-controls">
+      <div id="status" class="status idle">
+        <div class="status-main" id="statusMain">Idle</div>
+        <div class="status-sub" id="statusSub">Press Start to begin sending drafts.</div>
+      </div>
+
+      <div id="alertBox" class="alertbox" hidden>
+        <strong>Gmail is blocking or limiting your mail</strong>
+        <p id="alertText"></p>
+        <p class="alert-hint">Check your inbox. Pressing Start again continues anyway.</p>
+      </div>
+
+      <button id="toggle" class="primary">Start</button>
+
+      <section class="card">
+        <div class="row">
+          <label for="minMinutes">Interval</label>
+          <div class="interval">
+            <input type="number" id="minMinutes" min="0.5" max="1440" step="1" />
+            <span class="sep">to</span>
+            <input type="number" id="maxMinutes" min="0.5" max="1440" step="1" />
+            <span class="unit">min</span>
+          </div>
+        </div>
+        <p class="hint">Each wait is picked at random inside this range.</p>
+
+        <div class="row">
+          <label for="order">Pick draft</label>
+          <select id="order">
+            <option value="random">Random</option>
+            <option value="oldest">Oldest first</option>
+            <option value="newest">Newest first</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <label for="dailyLimit">Daily cap</label>
+          <input type="number" id="dailyLimit" min="0" max="2000" step="1" class="small" />
+          <span class="unit">0 = off</span>
+        </div>
+
+        <label class="check"><input type="checkbox" id="checkInbox" /> Check inbox for blocks before each send</label>
+        <label class="check"><input type="checkbox" id="sendFirstImmediately" /> Send one right away on Start</label>
+        <label class="check"><input type="checkbox" id="restoreView" /> Return Gmail to the view I was on</label>
+        <label class="check"><input type="checkbox" id="focusTab" /> Switch to the Gmail tab while sending</label>
+        <p class="hint hint-wide">Only if sends keep timing out. Chrome slows down tabs you haven't looked at for a few minutes.</p>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Humanize</h2>
+        <label class="check"><input type="checkbox" id="naturalPacing" /> Natural pacing and dwell time</label>
+        <label class="check"><input type="checkbox" id="skipWeekends" /> Skip weekends</label>
+        <label class="check"><input type="checkbox" id="activeHours" /> Only send between</label>
+        <div class="row hours">
+          <input type="time" id="activeStart" />
+          <span class="sep">and</span>
+          <input type="time" id="activeEnd" />
+        </div>
+        <p class="hint warn" id="hoursWarn" hidden>End time must be after the start time, so the hour limit is being ignored.</p>
+      </section>
+    </div>
+
+    <div class="col col-activity">
+      <div class="stats">
+        <div><strong id="sentToday">0</strong><span>today</span></div>
+        <div><strong id="totalSent">0</strong><span>total</span></div>
+        <div><strong id="skipCount">0</strong><span>skipped</span></div>
+        <div><strong id="bounceCount">0</strong><span>bounced</span></div>
+      </div>
+
+      <div class="actions">
+        <button id="sendNow" class="ghost">Send one now</button>
+        <button id="clearSkips" class="ghost">Clear skips</button>
+      </div>
+
+      <section class="log-wrap">
+        <div class="log-head">
+          <h2>Activity</h2>
+          <span class="log-actions">
+            <button id="copyLog" class="link">copy</button>
+            <button id="clearLog" class="link">clear</button>
+          </span>
+        </div>
+        <ul id="log" class="log"></ul>
+      </section>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
