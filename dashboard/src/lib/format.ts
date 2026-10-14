@@ -48,6 +48,19 @@ export function fmtInterval(min: number, max: number): string {
   return f(min) + "–" + f(max) + " min";
 }
 
+// Numeric dotted versions ("1.4.0"); anything unparsable sorts lowest.
+export function cmpVersion(a: string | null | undefined, b: string | null | undefined): number {
+  const parse = (v: string | null | undefined) =>
+    String(v || "").split(".").map((p) => parseInt(p, 10) || 0);
+  const x = parse(a);
+  const y = parse(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
 export function stopReasonLabel(reason: string | null | undefined): string {
   switch (reason) {
     case "user": return "stopped by user";

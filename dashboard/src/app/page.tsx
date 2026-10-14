@@ -3,7 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireAdmin } from "@/lib/admin";
 import { statusOf, BUCKET_LABEL } from "@/lib/status";
-import { ago, fmtDateTime, fmtInterval, inFuture, nowMs, stopReasonLabel } from "@/lib/format";
+import { ago, cmpVersion, fmtDateTime, fmtInterval, inFuture, nowMs, stopReasonLabel } from "@/lib/format";
 import { dashboardTz } from "@/lib/stats";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { StatusPill } from "@/components/StatusPill";
@@ -41,18 +41,29 @@ export default async function AccountsPage({
   const tally = { running: 0, stopped: 0, empty: 0, blocked: 0, offline: 0 };
   for (const r of rows) tally[r.status]++;
   const sentToday = rows.reduce((n, r) => n + r.a.sentToday, 0);
+  // The newest version any install reports; older ones are marked as behind.
+  const latestVersion = accounts.reduce<string | null>(
+    (best, a) => (a.version && cmpVersion(a.version, best) > 0 ? a.version : best),
+    null,
+  );
+  const behind = rows.filter((r) => r.a.version && cmpVersion(r.a.version, latestVersion) < 0).length;
 
   return (
     <div className="space-y-4">
       <AutoRefresh seconds={30} />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         <Stat label="Accounts" value={rows.length} />
         <Stat label="Running" value={tally.running} />
         <Stat label="Stopped" value={tally.stopped} sub={tally.empty + " empty"} />
         <Stat label="Blocked" value={tally.blocked} />
         <Stat label="Offline" value={tally.offline} />
         <Stat label="Sent today" value={sentToday} sub="as reported" />
+        <Stat
+          label="Extension version"
+          value={latestVersion ? "v" + latestVersion : "—"}
+          sub={behind ? behind + " behind" : "all up to date"}
+        />
       </div>
 
       <Card>
@@ -93,6 +104,7 @@ export default async function AccountsPage({
           <thead className="border-b border-zinc-200 dark:border-zinc-800">
             <tr>
               <th className={th}>Account</th>
+              <th className={th}>Version</th>
               <th className={th}>Manager</th>
               <th className={th}>Status</th>
               <th className={th}>Last send</th>
@@ -106,7 +118,7 @@ export default async function AccountsPage({
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-2 py-8 text-center text-sm text-zinc-500">
+                <td colSpan={10} className="px-2 py-8 text-center text-sm text-zinc-500">
                   No accounts yet. Accounts appear here on their own once an extension with the right API key sends its first heartbeat.
                 </td>
               </tr>
@@ -118,9 +130,22 @@ export default async function AccountsPage({
                     {a.email || <span className="text-zinc-400">unknown · {a.deviceId.slice(0, 8)}</span>}
                   </Link>
                   <div className="text-xs text-zinc-500">
-                    v{a.version || "?"} · seen {ago(a.lastSeenAt, now)}
+                    seen {ago(a.lastSeenAt, now)}
                     {!a.gmailTabOpen && status !== "offline" && " · no Gmail tab"}
                   </div>
+                </td>
+                <td className={td + " tabular-nums"}>
+                  {a.version ? (
+                    cmpVersion(a.version, latestVersion) < 0 ? (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" title={"Newest seen is v" + latestVersion}>
+                        v{a.version}
+                      </span>
+                    ) : (
+                      <span className="text-sm">v{a.version}</span>
+                    )
+                  ) : (
+                    <span className="text-zinc-400">?</span>
+                  )}
                 </td>
                 <td className={td}>
                   <form action={setManager}>
