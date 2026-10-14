@@ -1,0 +1,6 @@
+# Per-machine extension config (server URL + API key)
+extension/config.local.js
+
+# OS
+.DS_Store
+Thumbs.db

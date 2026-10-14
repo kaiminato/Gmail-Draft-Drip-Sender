@@ -52,8 +52,35 @@ function renderStatus() {
       : (state.lastMessage || '');
   } else {
     box.classList.add('idle');
-    main.textContent = 'Idle';
+    main.textContent = state.stopReason === 'admin' ? 'Stopped from the dashboard'
+      : state.stopReason === 'blocked' ? 'Stopped: blocked'
+      : state.stopReason === 'empty' ? 'Stopped: no drafts left'
+      : 'Idle';
     sub.textContent = state.lastMessage || 'Press Start to begin sending drafts.';
+  }
+
+  const acct = $('accountPill');
+  acct.textContent = state.accountEmail || 'account unknown';
+  acct.classList.toggle('bad', !state.accountEmail);
+
+  const srv = $('serverPill');
+  srv.classList.remove('ok', 'bad');
+  if (!state.serverConfigured) {
+    srv.textContent = 'dashboard not set up';
+    srv.title = 'Fill in apiBase and apiKey in config.js (or config.local.js).';
+    srv.classList.add('bad');
+  } else if (state.serverLastError && state.serverLastTryAt > state.serverLastOkAt) {
+    srv.textContent = 'dashboard error';
+    srv.title = (state.apiHost || '') + ': ' + state.serverLastError;
+    srv.classList.add('bad');
+  } else if (state.serverLastOkAt) {
+    const ago = Math.max(0, Math.round((Date.now() - state.serverLastOkAt) / 1000));
+    srv.textContent = 'dashboard ok · ' + (ago < 90 ? ago + 's' : Math.round(ago / 60) + 'm') + ' ago';
+    srv.title = state.apiHost || '';
+    srv.classList.add('ok');
+  } else {
+    srv.textContent = 'dashboard: connecting…';
+    srv.title = state.apiHost || '';
   }
 
   const pill = $('tabPill');
@@ -97,7 +124,6 @@ function renderSettings() {
   $('sendFirstImmediately').checked = state.sendFirstImmediately;
   $('restoreView').checked = state.restoreView;
   $('checkInbox').checked = state.checkInbox;
-  $('focusTab').checked = state.focusTab;
   $('naturalPacing').checked = state.naturalPacing;
   $('skipWeekends').checked = state.skipWeekends;
   $('activeHours').checked = state.activeHours;
@@ -145,17 +171,14 @@ async function refresh(full) {
   renderLog();
 }
 
+// Interval and daily cap are owned by the dashboard, so they are not sent.
 function pushSettings() {
   return send('SET_SETTINGS', {
     patch: {
-      minMinutes: $('minMinutes').value,
-      maxMinutes: $('maxMinutes').value,
       order: $('order').value,
-      dailyLimit: $('dailyLimit').value,
       sendFirstImmediately: $('sendFirstImmediately').checked,
       restoreView: $('restoreView').checked,
       checkInbox: $('checkInbox').checked,
-      focusTab: $('focusTab').checked,
       naturalPacing: $('naturalPacing').checked,
       skipWeekends: $('skipWeekends').checked,
       activeHours: $('activeHours').checked,
@@ -165,7 +188,7 @@ function pushSettings() {
   }).then((s) => { state = { ...state, ...s }; renderStatus(); });
 }
 
-['order', 'sendFirstImmediately', 'restoreView', 'checkInbox', 'focusTab', 'naturalPacing', 'skipWeekends']
+['order', 'sendFirstImmediately', 'restoreView', 'checkInbox', 'naturalPacing', 'skipWeekends']
   .forEach((id) => $(id).addEventListener('change', pushSettings));
 
 ['activeHours', 'activeStart', 'activeEnd'].forEach((id) => {
@@ -175,23 +198,19 @@ function pushSettings() {
   });
 });
 
-['minMinutes', 'maxMinutes', 'dailyLimit'].forEach((id) => {
-  $(id).addEventListener('change', async () => {
-    await pushSettings();
-    renderSettings(); // reflect clamping / min-max swap
-  });
-});
-
 $('toggle').addEventListener('click', async () => {
   $('toggle').disabled = true;
+  const starting = !state.running;
   try {
     await pushSettings();
-    state = await send(state.running ? 'STOP' : 'START');
+    state = await send(starting ? 'START' : 'STOP');
     renderStatus();
     renderLog();
   } finally {
     $('toggle').disabled = false;
   }
+  // Starting hands the screen over to Gmail; get out of the way.
+  if (starting) { window.close(); return; }
   setTimeout(() => refresh(false), 1200);
 });
 
@@ -217,9 +236,12 @@ $('copyLog').addEventListener('click', async () => {
   const btn = $('copyLog');
   const head = [
     'Gmail Draft Drip Sender v' + (state.version || '?') + ' - ' + new Date().toLocaleString(),
+    'account ' + (state.accountEmail || 'unknown') + ' | device ' + (state.deviceId || '?') +
+      ' | dashboard ' + (state.apiHost || 'not set') +
+      (state.serverLastError ? ' (error: ' + state.serverLastError + ')' : ''),
     'interval ' + state.minMinutes + '-' + state.maxMinutes + 'm | order ' + state.order +
-      ' | daily cap ' + state.dailyLimit,
-    'checkInbox ' + state.checkInbox + ' | focusTab ' + state.focusTab +
+      ' | daily cap ' + state.dailyLimit + ' | stop reason ' + (state.stopReason || '-'),
+    'checkInbox ' + state.checkInbox +
       ' | pacing ' + state.naturalPacing + ' | hours ' + state.activeHours +
       ' | weekends skipped ' + state.skipWeekends,
     'sent today ' + state.sentToday + ' | total ' + state.totalSent +

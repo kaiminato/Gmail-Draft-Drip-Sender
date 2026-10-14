@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Gmail Draft Drip Sender",
-  "version": "1.3.0",
-  "description": "Sends the drafts sitting in your Gmail Drafts folder one at a time, spaced out by a random interval you choose.",
+  "version": "1.4.0",
+  "description": "Sends the drafts sitting in your Gmail Drafts folder one at a time, spaced out by a random interval, and reports to a central dashboard.",
   "permissions": [
     "storage",
     "alarms",
@@ -11,7 +11,8 @@
     "notifications"
   ],
   "host_permissions": [
-    "*://mail.google.com/*"
+    "*://mail.google.com/*",
+    "https://*.vercel.app/*"
   ],
   "background": {
     "service_worker": "background.js"

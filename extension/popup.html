@@ -10,7 +10,11 @@
       <span class="dot" id="dot"></span>
       <h1>Draft Drip Sender</h1>
     </div>
-    <span class="pill" id="tabPill">checking…</span>
+    <span class="pills">
+      <span class="pill" id="accountPill" title="Signed-in Gmail account">account unknown</span>
+      <span class="pill" id="serverPill" title="Dashboard connection">dashboard…</span>
+      <span class="pill" id="tabPill">checking…</span>
+    </span>
   </header>
 
   <div class="layout">
@@ -32,13 +36,13 @@
         <div class="row">
           <label for="minMinutes">Interval</label>
           <div class="interval">
-            <input type="number" id="minMinutes" min="0.5" max="1440" step="1" />
+            <input type="number" id="minMinutes" min="0.5" max="1440" step="1" disabled />
             <span class="sep">to</span>
-            <input type="number" id="maxMinutes" min="0.5" max="1440" step="1" />
+            <input type="number" id="maxMinutes" min="0.5" max="1440" step="1" disabled />
             <span class="unit">min</span>
           </div>
         </div>
-        <p class="hint">Each wait is picked at random inside this range.</p>
+        <p class="hint">Set from the dashboard. Each wait is picked at random inside this range.</p>
 
         <div class="row">
           <label for="order">Pick draft</label>
@@ -51,15 +55,14 @@
 
         <div class="row">
           <label for="dailyLimit">Daily cap</label>
-          <input type="number" id="dailyLimit" min="0" max="2000" step="1" class="small" />
-          <span class="unit">0 = off</span>
+          <input type="number" id="dailyLimit" min="0" max="2000" step="1" class="small" disabled />
+          <span class="unit">0 = off · set from the dashboard</span>
         </div>
 
         <label class="check"><input type="checkbox" id="checkInbox" /> Check inbox for blocks before each send</label>
         <label class="check"><input type="checkbox" id="sendFirstImmediately" /> Send one right away on Start</label>
         <label class="check"><input type="checkbox" id="restoreView" /> Return Gmail to the view I was on</label>
-        <label class="check"><input type="checkbox" id="focusTab" /> Switch to the Gmail tab while sending</label>
-        <p class="hint hint-wide">Only if sends keep timing out. Chrome slows down tabs you haven't looked at for a few minutes.</p>
+        <p class="hint hint-wide">Gmail is brought to the front for each send, and opened if no Gmail tab exists.</p>
       </section>
 
       <section class="card">

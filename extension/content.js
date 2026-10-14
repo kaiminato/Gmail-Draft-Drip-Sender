@@ -777,9 +777,55 @@
     }
   }
 
+  /* ---------- Who is signed in, and is Gmail usable yet ---------- */
+
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const asEmail = (s) => {
+    const v = String(s || '').trim().toLowerCase();
+    return EMAIL_RE.test(v) ? v : '';
+  };
+
+  // The signed-in address, from the most dependable source that is present.
+  // The account button's label reads "Google Account: Name (x@y.com)"; the
+  // document title carries the address too and is there before the header.
+  function detectAccountEmail() {
+    const fromLabel = (el) => {
+      const m = /\(([^()\s]+@[^()\s]+)\)/.exec(el.getAttribute('aria-label') || '');
+      return m ? asEmail(m[1]) : '';
+    };
+    for (const sel of ['a[aria-label*="Google Account"]', 'a.gb_B', 'a.gb_d',
+      'a[href^="https://accounts.google.com/SignOutOptions"]']) {
+      for (const el of document.querySelectorAll(sel)) {
+        const e = fromLabel(el);
+        if (e) return e;
+      }
+    }
+    const t = /([^\s@()<>]+@[^\s@()<>]+\.[^\s@()<>]+)/.exec(document.title || '');
+    if (t && asEmail(t[1])) return asEmail(t[1]);
+    for (const el of document.querySelectorAll('[data-email]')) {
+      const e = asEmail(el.getAttribute('data-email'));
+      if (e) return e;
+    }
+    for (const el of document.querySelectorAll('div[role="banner"] img[alt*="@"], div[role="banner"] img[aria-label*="@"]')) {
+      const m = /([^\s@()]+@[^\s@()]+)/.exec(el.getAttribute('alt') || el.getAttribute('aria-label') || '');
+      if (m && asEmail(m[1])) return asEmail(m[1]);
+    }
+    return '';
+  }
+
+  // Gmail's shell reports "complete" long before the mailbox is on screen.
+  function isGmailReady() {
+    return !!document.querySelector('div[role="main"]') && !!document.querySelector('div[role="navigation"]');
+  }
+
   const onMessage = (msg, _sender, sendResponse) => {
     if (!msg || !msg.type) return;
     if (msg.type === 'PING') { sendResponse({ ok: true }); return; }
+    if (msg.type === 'GET_ACCOUNT') { sendResponse({ ok: true, email: detectAccountEmail() }); return; }
+    if (msg.type === 'GMAIL_READY') {
+      sendResponse({ ok: true, ready: isGmailReady(), email: detectAccountEmail() });
+      return;
+    }
     if (msg.type === 'SEND_ONE_DRAFT') {
       sendOneDraft(msg).then(sendResponse).catch((e) =>
         sendResponse({ ok: false, code: 'ERROR', message: String((e && e.message) || e) }));
@@ -796,4 +842,13 @@
   window.__GMAIL_DRAFT_DRIP_DISPOSE__ = () => {
     try { chrome.runtime.onMessage.removeListener(onMessage); } catch (_) {}
   };
+
+  // Tell the worker who this tab is as soon as the header has rendered. The
+  // extension context can be invalidated by a reload mid-wait, hence the guards.
+  waitFor(detectAccountEmail, 30000, 500).then((email) => {
+    if (!email) return;
+    try {
+      chrome.runtime.sendMessage({ type: 'ACCOUNT_DETECTED', email }, () => void chrome.runtime.lastError);
+    } catch (_) {}
+  }).catch(() => {});
 })();

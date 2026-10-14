@@ -80,6 +80,11 @@ h1 { font-size: 14px; font-weight: 600; margin: 0; white-space: nowrap; }
   padding: 2px 8px; white-space: nowrap;
 }
 .pill.bad { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, var(--line)); }
+.pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+.pills { display: flex; gap: 6px; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+.pill { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+
+input:disabled { opacity: .55; }
 
 .status {
   border: 1px solid var(--line);
