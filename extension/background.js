@@ -21,7 +21,8 @@ const ALARM = 'gmail-draft-drip';
 const HEARTBEAT_ALARM = 'drip-heartbeat';
 const GMAIL_URL = 'https://mail.google.com/';
 const MAX_LOG = 200;
-const MAX_CONSECUTIVE_FAILURES = 5;
+// Failures never stop the run; every Nth one in a row raises a notification.
+const FAILURE_NOTIFY_EVERY = 5;
 const RETRY_DELAY_MS = 60 * 1000;
 const SKIP_RETRY_DELAY_MS = 35 * 1000; // alarms clamp below ~30s
 const MAX_QUEUED_EVENTS = 500;
@@ -591,15 +592,16 @@ async function tick(manual) {
     case 'BUSY':
       break;
     default: {
+      // A failed cycle is retried for as long as the run is on. The count is
+      // kept for the log and the dashboard, and a notification goes out
+      // every few failures in a row so a stuck profile does not sit quietly.
       const fails = st.consecutiveFailures + 1;
       await setState({ consecutiveFailures: fails });
       await enqueueEvent('failed', { code: res.code || 'ERROR', message: res.message || '', consecutive: fails });
-      if (fails >= MAX_CONSECUTIVE_FAILURES) {
-        await stop('failures', 'Stopped after ' + fails + ' failures in a row. Last problem: ' + (res.message || res.code), 'err');
-        notify('Draft sender stopped', res.message || res.code);
-      } else {
-        await schedule(RETRY_DELAY_MS, 'Retry ' + fails + '/' + MAX_CONSECUTIVE_FAILURES + '.');
+      if (fails % FAILURE_NOTIFY_EVERY === 0) {
+        notify('Draft sender still failing', fails + ' in a row. Last problem: ' + (res.message || res.code));
       }
+      await schedule(RETRY_DELAY_MS, 'Retry ' + fails + (fails === 1 ? '' : ' (still trying)') + '.');
     }
   }
   return res;

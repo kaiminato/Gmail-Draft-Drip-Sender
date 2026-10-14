@@ -256,7 +256,7 @@ now scraped after a failed send and reported in the log verbatim, after "Gmail s
 
 If that text matches the critical list (limit for sending, reached a limit, sending quota,
 too many messages, message blocked, and so on) the run **stops immediately** rather than
-burning five retries — the same treatment an inbox block notice gets, and the popup shows
+retrying every minute — the same treatment an inbox block notice gets, and the popup shows
 the same red banner.
 
 The scrape deliberately skips the draft's own subject and body. A perfectly ordinary line
@@ -307,8 +307,10 @@ extension reload is still the reliable move.
 - **Drafts with no subject** are sent; the "send without a subject?" prompt is confirmed.
 - **Sends confirmed late** appear in amber rather than green, worded "confirmed after the
   fact". That means the tab was slow, not that anything went wrong.
-- **Transient problems** (Gmail tab closed, page still loading) are retried once a minute.
-  After 5 failures in a row it stops and posts a notification.
+- **Transient problems** (Gmail tab closed, page still loading, a draft that would not
+  open) are retried once a minute for as long as the run is on; a failure never stops it.
+  Every fifth failure in a row posts a notification, the log shows the running count, and
+  the dashboard shows it too. Only a Gmail block, an empty Drafts folder, or Stop ends a run.
 - **Nothing is ever deleted.** If a send can't be completed the draft is saved and closed,
   never discarded.
 
