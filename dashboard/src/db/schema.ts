@@ -81,6 +81,20 @@ export const events = pgTable(
   ],
 );
 
+// Key/value for the few dashboard-wide settings (the admin password hash).
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Extra Google accounts allowed to sign in, on top of the built-in list.
+export const adminEmails = pgTable("admin_emails", {
+  email: text("email").primaryKey(),
+  addedBy: text("added_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Manager = typeof managers.$inferSelect;
 export type Account = typeof accounts.$inferSelect;
 export type Event = typeof events.$inferSelect;

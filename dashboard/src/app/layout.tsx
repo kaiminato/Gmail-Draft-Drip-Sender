@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
-import { auth, signOut, isAdminEmail } from "@/auth";
+import { auth, signOut } from "@/auth";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -14,7 +14,8 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
-  const signedIn = !!session && isAdminEmail(session.user?.email);
+  const signedIn = session?.isAdmin === true;
+  const who = session?.method === "google" ? session.user?.email : "password admin";
 
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
@@ -28,6 +29,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   <Link href="/" className="hover:text-zinc-900 dark:hover:text-white">Accounts</Link>
                   <Link href="/managers" className="hover:text-zinc-900 dark:hover:text-white">Managers</Link>
                   <Link href="/stats" className="hover:text-zinc-900 dark:hover:text-white">Stats</Link>
+                  <Link href="/settings" className="hover:text-zinc-900 dark:hover:text-white">Settings</Link>
                 </nav>
               )}
             </div>
@@ -39,7 +41,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 }}
                 className="flex items-center gap-3 text-sm text-zinc-500"
               >
-                <span className="hidden sm:inline">{session?.user?.email}</span>
+                <span className="hidden sm:inline">{who}</span>
                 <button className="rounded-md border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800">
                   Sign out
                 </button>

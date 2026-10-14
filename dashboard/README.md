@@ -1,7 +1,23 @@
 # Draft Drip Dashboard
 
-Admin-only web app that every Gmail Draft Drip Sender extension reports to. One person
-signs in (with Google); extensions authenticate with a shared API key.
+Admin-only web app that every Gmail Draft Drip Sender extension reports to. Admins sign
+in with an allow-listed Google account or with a shared admin password; extensions
+authenticate with a shared API key.
+
+## Signing in
+
+Two ways in, both giving full admin access:
+
+- **Google** — only for the addresses on the allow-list. Four are built into
+  `src/lib/admins.ts`; `ADMIN_EMAIL` (env) adds one more; the Settings page adds and
+  removes further seats without a redeploy.
+- **Password** — one shared admin password. Until it is changed it is the temporary value
+  in `src/lib/admins.ts` (`DEFAULT_ADMIN_PASSWORD`). **Change it on the Settings page
+  right after the first deploy.**
+
+Only a Google-signed-in admin can change the password or the allow-list, so a leaked
+password cannot be used to lock the real admins out. Changing the password does not end
+sessions that already signed in with the old one; they expire on their own (30 days).
 
 What it shows and does:
 
@@ -35,7 +51,7 @@ Next.js (App Router), Tailwind, Drizzle ORM on Neon Postgres, Auth.js with Googl
    | `DATABASE_URL` | the Neon connection string |
    | `AUTH_SECRET` | `openssl rand -base64 32` |
    | `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | from the OAuth client |
-   | `ADMIN_EMAIL` | the only Google account allowed in |
+   | `ADMIN_EMAIL` | optional, one extra Google account allowed in |
    | `EXTENSION_API_KEY` | `openssl rand -hex 32`; same value goes in each extension |
    | `DASHBOARD_TZ` | optional, IANA zone such as `Asia/Seoul`; day/week/month boundaries use it. Default UTC |
 
@@ -49,8 +65,9 @@ Next.js (App Router), Tailwind, Drizzle ORM on Neon Postgres, Auth.js with Googl
    `drizzle-kit push` applies the schema in `src/db/schema.ts` directly. Run it again after
    any schema change.
 
-5. Deploy. Open the site, sign in with the admin account. Then put the site URL and the API
-   key into each extension's `config.local.js` (see `extension/README.md`).
+5. Deploy. Open the site, sign in with one of the admin Google accounts, open
+   **Settings** and set a new admin password. Then put the site URL and the API key into
+   each extension's `config.local.js` (see `extension/README.md`).
 
 ## Local development
 

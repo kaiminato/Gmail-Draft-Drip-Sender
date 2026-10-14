@@ -1,29 +1,45 @@
 import NextAuth from "next-auth";
+import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
+import { isAllowedGoogleEmail, verifyAdminPassword } from "@/lib/admins";
 
-const adminEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
-
-export function isAdminEmail(email: string | null | undefined): boolean {
-  return !!adminEmail && !!email && email.trim().toLowerCase() === adminEmail;
-}
-
-// Google sign-in, but only one address is ever let through. Everyone else
-// gets bounced back to the sign-in page with an error.
+// Two ways in: a Google account on the allow-list, or the shared admin
+// password. Either gives a full admin session; only Google sessions may
+// change the password or the allow-list (see lib/admin.ts).
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [Google],
+  providers: [
+    Google,
+    Credentials({
+      id: "password",
+      name: "Password",
+      credentials: { password: { label: "Password", type: "password" } },
+      async authorize(credentials) {
+        const password = typeof credentials?.password === "string" ? credentials.password : "";
+        if (!(await verifyAdminPassword(password))) return null;
+        return { id: "admin-password", name: "Admin", email: null };
+      },
+    }),
+  ],
   session: { strategy: "jwt" },
   pages: { signIn: "/login", error: "/login" },
   callbacks: {
-    signIn({ profile, user }) {
-      return isAdminEmail(profile?.email ?? user?.email);
+    async signIn({ account, profile, user }) {
+      if (account?.provider === "google") {
+        return isAllowedGoogleEmail(profile?.email ?? user?.email);
+      }
+      // The password provider already verified the secret in authorize().
+      return account?.provider === "password";
     },
-    jwt({ token }) {
-      // Re-check on every request so changing ADMIN_EMAIL locks out old sessions.
-      token.isAdmin = isAdminEmail(token.email);
+    jwt({ token, account }) {
+      if (account) {
+        token.isAdmin = true;
+        token.method = account.provider === "google" ? "google" : "password";
+      }
       return token;
     },
     session({ session, token }) {
-      (session as typeof session & { isAdmin?: boolean }).isAdmin = token.isAdmin === true;
+      session.isAdmin = token.isAdmin === true;
+      session.method = token.method;
       return session;
     },
   },
