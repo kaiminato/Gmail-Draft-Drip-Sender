@@ -149,6 +149,7 @@ function renderSettings() {
   $('order').value = state.order;
   $('sendFirstImmediately').checked = state.sendFirstImmediately;
   $('restoreView').checked = state.restoreView;
+  $('keepInPlace').checked = state.keepInPlace !== false;
   $('checkInbox').checked = state.checkInbox;
   $('naturalPacing').checked = state.naturalPacing;
   if (state.tiers) {
@@ -195,13 +196,14 @@ function pushSettings() {
       order: $('order').value,
       sendFirstImmediately: $('sendFirstImmediately').checked,
       restoreView: $('restoreView').checked,
+      keepInPlace: $('keepInPlace').checked,
       checkInbox: $('checkInbox').checked,
       naturalPacing: $('naturalPacing').checked
     }
   }).then((s) => { state = { ...state, ...s }; renderStatus(); });
 }
 
-['order', 'sendFirstImmediately', 'restoreView', 'checkInbox', 'naturalPacing']
+['order', 'sendFirstImmediately', 'restoreView', 'keepInPlace', 'checkInbox', 'naturalPacing']
   .forEach((id) => $(id).addEventListener('change', pushSettings));
 
 // A tier button starts the run on that tier, or switches tier while running.
@@ -271,7 +273,8 @@ $('copyLog').addEventListener('click', async () => {
       (plan ? ' | plan ' + state.sentToday + '/' + plan.dayTarget + ', ' + (plan.times || []).length + ' to go, rest ' +
         plan.restStart + '-' + plan.restEnd + (plan.compressed ? ' (compressed)' : '') : ' | no plan'),
     'checkInbox ' + state.checkInbox + ' | pacing ' + state.naturalPacing +
-      ' | sendFirst ' + state.sendFirstImmediately + ' | restoreView ' + state.restoreView,
+      ' | sendFirst ' + state.sendFirstImmediately + ' | restoreView ' + state.restoreView +
+      ' | keepInPlace ' + state.keepInPlace,
     'sent today ' + state.sentToday + ' | total ' + state.totalSent +
       ' | skipped ' + state.skipIds.length + ' | bounced ' + (state.bounceCount || 0) +
       ' | drafts left ' + (typeof state.remainingCount === 'number' ? state.remainingCount : '?') +

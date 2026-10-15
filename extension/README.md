@@ -75,6 +75,7 @@ Everything else is local to the popup:
 | **Check inbox for blocks before each send** | Scans the inbox before every send and stops the run if Gmail is blocking or limiting you. Ordinary bounces are logged instead. On by default. See below. |
 | **Send one right away on start** | Fires the first draft immediately instead of waiting for the first planned time. |
 | **Return Gmail to the view I was on** | Restores your previous Gmail view after each send. |
+| **Never bring Gmail to the front** | Leaves the window on its own desktop and behind other windows. On by default. A window Chrome treats as hidden sends more slowly unless Chrome runs with the switches described under *Background tabs and throttling*. |
 | **Natural pacing and dwell time** | Triangular gaps inside a session, in-page dwell, cursor drift. On by default. |
 
 **Send one now** runs a single send immediately, which is the fastest way to confirm it
@@ -252,11 +253,18 @@ Those fixes make a throttled tab *correct*, but not fast: the cosmetic dwell bet
 is still made of timers, so a cycle in a long-hidden tab can take several minutes of
 wall clock even when everything works.
 
-That is why the extension makes the Gmail tab active for each send and, only if the page
-still reports itself hidden after that, brings its window to the front (un-minimising it
-if needed). An active tab in a visible window is not throttled, which removes this whole
-class of problem rather than working around it. A Gmail window that is already on screen
-is never touched, so keeping Gmail in its own window makes sending invisible.
+That is why the extension makes the Gmail tab active for each send and restores the window
+if it was minimised. What it does next depends on **Never bring Gmail to the front** in the
+popup, on by default:
+
+- **On**: the window is left where it is, whatever Chrome thinks of it. Focusing a window
+  on another virtual desktop makes Windows switch you to that desktop, which is exactly
+  what this avoids. A page Chrome treats as hidden then runs its sends throttled: correct,
+  as described above, but slower. The switches below make such a page count as visible
+  again, and with them sends are both quick and invisible.
+- **Off**: a page that still reports itself hidden gets its window focused, the old
+  behaviour. Fine for a profile on the desktop you work on; on another desktop it pulls
+  you over.
 
 ### Profiles on other virtual desktops
 

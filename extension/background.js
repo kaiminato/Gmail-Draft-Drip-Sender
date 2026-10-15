@@ -52,6 +52,7 @@ const DEFAULTS = {
   order: 'random',
   sendFirstImmediately: true,
   restoreView: true,
+  keepInPlace: true,       // never focus the Gmail window; see bringToFront()
   naturalPacing: true,
   checkInbox: true,
   pendingAlerts: [], // what stopped the run, shown in the popup
@@ -341,21 +342,37 @@ async function pageVisible(tabId) {
   }
 }
 
-let hiddenFocusLogged = false;
+// Focusing a window on another virtual desktop makes Windows switch the
+// operator to that desktop, so by default (keepInPlace) the window is never
+// focused: the tab is made active, a minimised window is restored, and that
+// is all. A page that still reports hidden then runs its sends throttled,
+// which is slower but correct (see the README on background tabs); the
+// Chrome switches from the README make such a page count as visible again.
+let hiddenLogged = false;
 async function bringToFront(tab) {
+  const st = await getState();
   try { await chrome.tabs.update(tab.id, { active: true }); } catch (_) {}
-  await sleep(400);
-  if (await pageVisible(tab.id)) return;
-  if (!hiddenFocusLogged) {
-    hiddenFocusLogged = true;
-    await log('info', 'Gmail tab reports itself hidden, so its window is brought forward for each send. ' +
-      'To keep it where it is, launch this profile with the Chrome switches from the README.');
-  }
   try {
     const win = await chrome.windows.get(tab.windowId);
     if (win.state === 'minimized') await chrome.windows.update(win.id, { state: 'normal' });
-    await chrome.windows.update(win.id, { focused: true });
   } catch (_) {}
+  await sleep(400);
+  if (await pageVisible(tab.id)) return;
+  if (st.keepInPlace) {
+    if (!hiddenLogged) {
+      hiddenLogged = true;
+      await log('info', 'Gmail tab reports itself hidden and is left where it is, so sends run slower. ' +
+        'Launch this profile with the Chrome switches from the README to keep them quick, ' +
+        'or untick "Never bring Gmail to the front".');
+    }
+    return;
+  }
+  if (!hiddenLogged) {
+    hiddenLogged = true;
+    await log('info', 'Gmail tab reports itself hidden, so its window is brought forward for each send. ' +
+      'To keep it where it is, launch this profile with the Chrome switches from the README.');
+  }
+  try { await chrome.windows.update(tab.windowId, { focused: true }); } catch (_) {}
   try { await chrome.tabs.update(tab.id, { active: true }); } catch (_) {}
   await sleep(1200);
 }
@@ -983,6 +1000,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (patch.order !== undefined) clean.order = patch.order;
         if (patch.sendFirstImmediately !== undefined) clean.sendFirstImmediately = !!patch.sendFirstImmediately;
         if (patch.restoreView !== undefined) clean.restoreView = !!patch.restoreView;
+        if (patch.keepInPlace !== undefined) clean.keepInPlace = !!patch.keepInPlace;
         if (patch.naturalPacing !== undefined) clean.naturalPacing = !!patch.naturalPacing;
         if (patch.checkInbox !== undefined) clean.checkInbox = !!patch.checkInbox;
         return setState(clean);
