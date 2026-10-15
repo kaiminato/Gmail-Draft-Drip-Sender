@@ -57,19 +57,44 @@ Next.js (App Router), Tailwind, Drizzle ORM on Neon Postgres, Auth.js with Googl
    | `EXTENSION_API_KEY` | `openssl rand -hex 32`; same value goes in each extension |
    | `DASHBOARD_TZ` | optional, IANA zone such as `Asia/Seoul`; day/week/month boundaries use it. Default UTC |
 
-4. **Create the tables** — from this folder, with `DATABASE_URL` in a local `.env`:
+4. Deploy. The build applies the SQL migrations in `drizzle/` to `DATABASE_URL` before
+   `next build` runs (see [Database migrations](#database-migrations)), so an empty Neon
+   database gets its tables on the first deploy and nothing has to be run by hand.
+
+5. Open the site, sign in with one of the admin Google accounts, open **Settings** and
+   set a new admin password. Then put the site URL and the API key into each extension's
+   `config.local.js` (see `extension/README.md`).
+
+## Database migrations
+
+The schema lives in `src/db/schema.ts`; the database is changed only through the
+migration files in `drizzle/`, which `npm run build` applies (via `scripts/migrate.mjs`)
+before Next builds. Every deploy therefore carries its own schema change, and a build
+whose migration fails stops instead of shipping code the database cannot serve. With no
+`DATABASE_URL` the step logs a line and skips, so the build also works without a database.
+
+To change the schema:
+
+1. Edit `src/db/schema.ts`.
+2. Generate the migration:
 
    ```bash
-   npm install
-   npx drizzle-kit push
+   npx drizzle-kit generate
    ```
 
-   `drizzle-kit push` applies the schema in `src/db/schema.ts` directly. Run it again after
-   any schema change.
+   This adds `drizzle/NNNN_<name>.sql` plus a snapshot under `drizzle/meta/`. Read the
+   SQL; if drizzle-kit asks whether a column was renamed or created, answer truthfully.
+3. Commit the migration together with the schema change, and deploy.
 
-5. Deploy. Open the site, sign in with one of the admin Google accounts, open
-   **Settings** and set a new admin password. Then put the site URL and the API key into
-   each extension's `config.local.js` (see `extension/README.md`).
+Applied migrations are recorded in the `drizzle.__drizzle_migrations` table, so each one
+runs exactly once per database. Never edit a migration that has already been deployed;
+add a new one instead. Do not use `drizzle-kit push` against the production database any
+more: it bypasses the migration log, and the next deploy would then try to apply changes
+that are already there.
+
+The first migration (`0000_init.sql`) is written with `IF NOT EXISTS` guards because the
+original database was created with `drizzle-kit push` before migrations existed; it is a
+no-op there and creates everything on a fresh database.
 
 ## Local development
 
@@ -77,7 +102,7 @@ Next.js (App Router), Tailwind, Drizzle ORM on Neon Postgres, Auth.js with Googl
 cp .env.example .env
 # fill in .env, then:
 npm install
-npx drizzle-kit push
+node scripts/migrate.mjs   # creates or updates the tables in DATABASE_URL
 npm run dev
 ```
 
