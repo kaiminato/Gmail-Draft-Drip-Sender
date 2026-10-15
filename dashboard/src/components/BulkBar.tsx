@@ -8,15 +8,20 @@ function boxes(): HTMLInputElement[] {
   return Array.from(document.querySelectorAll<HTMLInputElement>('input[name="ids"][form="bulk"]'));
 }
 
-// Start/Stop for the bulk form (`#bulk`, rendered by the page). With nothing
-// ticked the bar sits inline under the stats, "Select all" on the left and
-// the buttons on the right, and acts on the whole list; once rows are ticked
-// it floats at the bottom and acts on the selection only.
+// Start/Stop for the bulk form (`#bulk`, rendered by the page). The bar sits
+// inline under the stats, "Select all" on the left and the buttons on the
+// right. With nothing ticked the buttons act on the whole list; with rows
+// ticked, on the selection. It floats at the bottom only for a hand-picked
+// part of the list, where the rows may be far from the bar; after Select all
+// it stays where it is.
 export function BulkBar({ scopeLabel }: { scopeLabel: string }) {
-  const [count, setCount] = useState(0);
+  const [sel, setSel] = useState({ count: 0, total: 0 });
 
   useEffect(() => {
-    const update = () => setCount(boxes().filter((b) => b.checked).length);
+    const update = () => {
+      const all = boxes();
+      setSel({ count: all.filter((b) => b.checked).length, total: all.length });
+    };
     update();
     document.addEventListener("change", update);
     return () => document.removeEventListener("change", update);
@@ -28,7 +33,8 @@ export function BulkBar({ scopeLabel }: { scopeLabel: string }) {
     document.dispatchEvent(new Event("change"));
   };
 
-  const floating = count > 0;
+  const { count, total } = sel;
+  const floating = count > 0 && count < total;
 
   return (
     <div
@@ -41,7 +47,7 @@ export function BulkBar({ scopeLabel }: { scopeLabel: string }) {
       <SelectAll label="Select all" />
       <div className="flex flex-wrap items-center gap-2">
         <span className={"text-xs " + (floating ? "font-medium text-fg" : "text-muted")}>
-          {floating ? count + " selected" : "Act on " + scopeLabel + ":"}
+          {count > 0 ? count + " selected" + (floating ? "" : ":") : "Act on " + scopeLabel + ":"}
         </span>
         {TIER_ORDER.map((t) => (
           <button key={t} form="bulk" name="action" value={"start:" + t} className={btnTier + " " + TIER_META[t].bar} title={TIER_META[t].range}>
@@ -51,7 +57,7 @@ export function BulkBar({ scopeLabel }: { scopeLabel: string }) {
         <button form="bulk" name="action" value="stop" className={btnDanger}>
           Stop
         </button>
-        {floating && (
+        {count > 0 && (
           <button type="button" onClick={clear} className={btnGhost}>
             Clear
           </button>
