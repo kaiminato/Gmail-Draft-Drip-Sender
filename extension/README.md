@@ -356,6 +356,11 @@ extension reload is still the reliable move.
   the dashboard shows it too. Only a Gmail block, an empty Drafts folder, or Stop ends a run.
 - **Nothing is ever deleted.** If a send can't be completed the draft is saved and closed,
   never discarded.
+- **An empty Drafts folder is recognised from the left nav**, which shows a number beside
+  "Drafts" while any exist and nothing when there are none, in every locale. The list's
+  own "you don't have any saved drafts" wording is used too, but the badge is what makes
+  the empty folder certain, so the run stops with "Empty" instead of retrying a list that
+  "did not finish loading" every minute, and the drafts-left count reads 0.
 - **An extension update or a browser restart does not end a run.** Chrome clears every
   alarm when an extension updates, which once left running accounts sitting idle with
   nothing armed and "next any moment" on the dashboard. The extension now re-plans and

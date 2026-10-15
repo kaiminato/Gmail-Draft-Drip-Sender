@@ -334,10 +334,16 @@ async function pageVisible(tabId) {
   }
 }
 
+let hiddenFocusLogged = false;
 async function bringToFront(tab) {
   try { await chrome.tabs.update(tab.id, { active: true }); } catch (_) {}
   await sleep(400);
   if (await pageVisible(tab.id)) return;
+  if (!hiddenFocusLogged) {
+    hiddenFocusLogged = true;
+    await log('info', 'Gmail tab reports itself hidden, so its window is brought forward for each send. ' +
+      'To keep it where it is, launch this profile with the Chrome switches from the README.');
+  }
   try {
     const win = await chrome.windows.get(tab.windowId);
     if (win.state === 'minimized') await chrome.windows.update(win.id, { state: 'normal' });

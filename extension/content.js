@@ -214,8 +214,27 @@
     if (listRows().length) return true;
     const main = document.querySelector('div[role="main"]');
     if (!main) return false;
-    return /no (conversations|messages|drafts)|didn't match any|no results|nothing (here|found)/i
+    return /no (conversations|messages|drafts)|any saved drafts|didn't match any|no results|nothing (here|found)/i
       .test(main.textContent || '');
+  }
+
+  // Gmail's left nav shows the number of drafts beside "Drafts", and nothing
+  // at all when there are none. That badge states "empty" outright in every
+  // locale, where the list's own wording cannot be relied on. Returns the
+  // number, 0 for no badge, or null when the nav item cannot be read (nav
+  // collapsed to icons, markup changed), in which case nothing is concluded.
+  function draftsNavCount() {
+    const nav = document.querySelector('div[role="navigation"]');
+    if (!nav) return null;
+    const link = nav.querySelector('a[href*="#drafts"]');
+    if (!link || !isVisible(link) || link.getBoundingClientRect().width < 40) return null;
+    const item = link.closest('.aio') || (link.parentElement && link.parentElement.parentElement);
+    if (!item) return null;
+    const badge = item.querySelector('.bsU');
+    const digits = badge ? (badge.textContent || '').replace(/[^d]/g, '') : '';
+    if (!digits) return 0;
+    const n = parseInt(digits, 10);
+    return Number.isFinite(n) ? n : null;
   }
 
   async function gotoView(hash, hashRe) {
@@ -597,9 +616,10 @@
       }
 
       const all = listRows();
-      if (!all.length && !draftsSettled) {
+      if (!all.length && !draftsSettled && draftsNavCount() !== 0) {
         // "Empty" stops the run for good, so never conclude it from a view
-        // that never confirmed it had finished loading.
+        // that never confirmed it had finished loading, unless the nav's
+        // draft count says outright that there are none.
         return { ok: false, code: 'DRAFTS_TIMEOUT', message: 'Drafts list did not finish loading.' };
       }
       if (!all.length) return { ok: false, code: 'NO_DRAFTS', message: 'Drafts folder is empty.', remaining: 0 };
@@ -770,10 +790,13 @@
     const originalHash = location.hash;
     try {
       const settled = await goToDrafts();
-      if (!onDraftsView() || (!settled && !listRows().length)) {
-        return { ok: false, code: 'DRAFTS_TIMEOUT' };
-      }
-      return { ok: true, count: listRows().length };
+      if (!onDraftsView()) return { ok: false, code: 'DRAFTS_TIMEOUT' };
+      const rows = listRows().length;
+      const nav = draftsNavCount();
+      // The list shows one page; the nav badge counts the whole folder.
+      if (rows) return { ok: true, count: typeof nav === 'number' && nav >= rows ? nav : rows };
+      if (settled || nav === 0) return { ok: true, count: 0 };
+      return { ok: false, code: 'DRAFTS_TIMEOUT' };
     } finally {
       if (opts && opts.restoreView && originalHash && location.hash !== originalHash) {
         try { location.hash = originalHash; } catch (_) {}
