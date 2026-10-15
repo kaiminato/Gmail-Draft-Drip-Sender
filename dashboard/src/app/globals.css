@@ -75,6 +75,13 @@ select, input[type="number"], input[type="text"], input[type="email"], input[typ
 }
 input[type="checkbox"] { accent-color: var(--accent); }
 
+/* Sidebar collapsed to its icons: data-nav on <html> is set by SidebarToggle
+   and restored from localStorage before the first paint. On narrow screens
+   the sidebar is icon-only regardless. */
+html[data-nav="collapsed"] aside.sidebar { width: 3.5rem; padding-left: 0.5rem; padding-right: 0.5rem; }
+html[data-nav="collapsed"] .nav-label { display: none !important; }
+html[data-nav="collapsed"] .nav-icon { display: inline !important; }
+
 /* Zebra + hover without fighting row tints. */
 tbody tr:nth-child(even) > td { background-color: color-mix(in srgb, var(--panel-2) 60%, transparent); }
 tbody tr:hover > td { background-color: color-mix(in srgb, var(--accent) 6%, transparent); }

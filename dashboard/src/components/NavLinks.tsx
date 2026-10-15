@@ -44,6 +44,7 @@ export function NavLinks() {
           <Link
             key={it.href}
             href={it.href}
+            title={it.label}
             className={
               "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors " +
               (active
@@ -52,7 +53,7 @@ export function NavLinks() {
             }
           >
             <span className={active ? "text-accent" : ""}>{ICONS[it.key]}</span>
-            <span className="hidden md:inline">{it.label}</span>
+            <span className="nav-label hidden md:inline">{it.label}</span>
           </Link>
         );
       })}
