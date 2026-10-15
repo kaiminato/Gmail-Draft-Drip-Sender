@@ -16,6 +16,10 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const rand = (a, b) => a + Math.random() * (b - a);
 
+  // Reported on PING so the worker can tell a stale copy from the current one.
+  let SCRIPT_VERSION = '?';
+  try { SCRIPT_VERSION = chrome.runtime.getManifest().version; } catch (_) {}
+
   // Set per run from the popup's "natural pacing" switch.
   let human = true;
 
@@ -820,8 +824,11 @@
 
   const onMessage = (msg, _sender, sendResponse) => {
     if (!msg || !msg.type) return;
-    if (msg.type === 'PING') { sendResponse({ ok: true }); return; }
-    if (msg.type === 'GET_ACCOUNT') { sendResponse({ ok: true, email: detectAccountEmail() }); return; }
+    if (msg.type === 'PING') { sendResponse({ ok: true, version: SCRIPT_VERSION }); return; }
+    if (msg.type === 'GET_ACCOUNT') {
+      sendResponse({ ok: true, email: detectAccountEmail(), title: document.title || '' });
+      return;
+    }
     if (msg.type === 'GMAIL_READY') {
       sendResponse({ ok: true, ready: isGmailReady(), email: detectAccountEmail() });
       return;

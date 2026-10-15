@@ -330,7 +330,9 @@ function waitForTabComplete(tabId, timeout = 45000) {
 async function ensureContentScript(tabId) {
   try {
     const pong = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
-    if (pong && pong.ok) return true;
+    // A copy from an older build answers too; replace it so new messages
+    // (GET_ACCOUNT, GMAIL_READY) are understood.
+    if (pong && pong.ok && pong.version === getVersion()) return true;
   } catch (_) { /* not injected yet */ }
   try {
     await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
@@ -424,16 +426,40 @@ async function rememberEmail(email) {
 }
 
 // Read-only: asks an already-loaded Gmail tab who it is. Never navigates.
-async function refreshAccountEmail() {
-  const st = await getState();
-  if (st.accountEmail) return;
-  const tab = await findGmailTab();
-  if (!tab || tab.discarded || tab.status !== 'complete') return;
-  if (!(await ensureContentScript(tab.id))) return;
-  try {
-    const r = await chrome.tabs.sendMessage(tab.id, { type: 'GET_ACCOUNT' });
-    if (r && r.email) await rememberEmail(r.email);
-  } catch (_) {}
+let emailMissLogged = false;
+let emailRefreshInFlight = null;
+function refreshAccountEmail() {
+  if (emailRefreshInFlight) return emailRefreshInFlight;
+  emailRefreshInFlight = (async () => {
+    const st = await getState();
+    if (st.accountEmail) return;
+    const tab = await findGmailTab();
+    if (!tab || tab.discarded || tab.status !== 'complete') return;
+    if (!(await ensureContentScript(tab.id))) return;
+    let r = null;
+    try { r = await chrome.tabs.sendMessage(tab.id, { type: 'GET_ACCOUNT' }); } catch (_) {}
+    if (r && r.email) {
+      await rememberEmail(r.email);
+    } else if (!emailMissLogged) {
+      emailMissLogged = true;
+      await log('warn', 'Could not read the signed-in address from the Gmail page yet' +
+        (r && r.title ? ' (title: "' + String(r.title).slice(0, 80) + '")' : '') + '. Will keep trying.');
+    }
+  })().catch(() => {}).finally(() => { emailRefreshInFlight = null; });
+  return emailRefreshInFlight;
+}
+
+// A fresh install or reload does not reach tabs that were already open, and
+// an old copy of the script answers PING but knows nothing new. Inject into
+// every open Gmail tab so the extension is live at once.
+async function injectIntoOpenGmailTabs() {
+  let tabs = [];
+  try { tabs = await chrome.tabs.query({ url: '*://mail.google.com/*' }); } catch (_) {}
+  for (const t of tabs) {
+    if (t.discarded) continue;
+    try { await chrome.scripting.executeScript({ target: { tabId: t.id }, files: ['content.js'] }); } catch (_) {}
+  }
+  if (tabs.length) setTimeout(() => refreshAccountEmail(), 800);
 }
 
 /* ---------- one send cycle ---------- */
@@ -713,6 +739,8 @@ function sendHeartbeat(trigger) {
   }
   if (heartbeatInFlight) return heartbeatInFlight;
   heartbeatInFlight = (async () => {
+    // Fill in the address before reporting, if a loaded Gmail tab can tell us.
+    try { await refreshAccountEmail(); } catch (_) {}
     const body = await collectHeartbeat(trigger);
     await setState({ serverLastTryAt: Date.now() });
     const ctl = new AbortController();
@@ -842,6 +870,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   await getDeviceId();
   await setBadge(st.running);
   await ensureHeartbeatAlarm();
+  await injectIntoOpenGmailTabs();
   sendHeartbeat('boot').catch(() => {});
 });
 
@@ -864,6 +893,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'GET_STATE':
       reply((async () => {
         const st = await rollDailyCounter(await getState());
+        // Opening the popup is a good moment to fill in a missing address.
+        if (!st.accountEmail) refreshAccountEmail();
         const tabs = await chrome.tabs.query({ url: '*://mail.google.com/*' });
         let apiHost = '';
         try { apiHost = new URL(CFG.apiBase).host; } catch (_) {}
