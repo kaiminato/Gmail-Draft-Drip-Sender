@@ -231,7 +231,7 @@
     const item = link.closest('.aio') || (link.parentElement && link.parentElement.parentElement);
     if (!item) return null;
     const badge = item.querySelector('.bsU');
-    const digits = badge ? (badge.textContent || '').replace(/D/g, '') : '';
+    const digits = badge ? (badge.textContent || '').replace(/[^0-9]/g, '') : '';
     if (!digits) return 0;
     const n = parseInt(digits, 10);
     return Number.isFinite(n) ? n : null;
