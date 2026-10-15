@@ -11,5 +11,5 @@ self.DRIP_CONFIG = {
   // Must equal EXTENSION_API_KEY on the dashboard.
   apiKey: 'REPLACE_ME',
   // How often to report in. Chrome allows no less than 0.5.
-  heartbeatMinutes: 1
+  heartbeatMinutes: 0.5
 };
