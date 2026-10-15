@@ -7,6 +7,7 @@ import { statusOf, BUCKET_LABEL } from "@/lib/status";
 import { ago, fmtDateTime, fmtInterval, inFuture, nowMs, stopReasonLabel } from "@/lib/format";
 import { dashboardTz } from "@/lib/stats";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { AutoSubmitSelect } from "@/components/AutoSubmitSelect";
 import { StatusPill } from "@/components/StatusPill";
 import { btn, btnDanger, btnPrimary, Card, input, select, Stat, td, th } from "@/components/ui";
 import { cancelCommand, deleteAccount, queueCommand, setDailyLimit, setInterval, setManager } from "../../actions";
@@ -81,15 +82,16 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card title="Manager">
-          <form action={setManager} className="flex items-center gap-1">
+          <form action={setManager} key={a.managerId ?? "none"}>
             <input type="hidden" name="accountId" value={a.id} />
-            <select name="managerId" defaultValue={a.managerId ?? ""} className={select}>
-              <option value="">— Unassigned —</option>
-              {managers.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-            <button className={btn}>Set</button>
+            <AutoSubmitSelect
+              name="managerId"
+              value={a.managerId ?? ""}
+              options={managers.map((m) => ({ value: m.id, label: m.name }))}
+              placeholder="— Unassigned —"
+              className={select + " w-full"}
+              title="Saves on change"
+            />
           </form>
         </Card>
         <Card title={"Interval (" + fmtInterval(a.minMinutes, a.maxMinutes) + ")"}>

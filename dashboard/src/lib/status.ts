@@ -37,5 +37,5 @@ export const BUCKET_LABEL: Record<string, string> = {
   none: "None",
   "1-10": "1~10",
   "10+": "10+",
-  unknown: "?",
+  unknown: "—",
 };
