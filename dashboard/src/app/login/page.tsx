@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { signIn } from "@/auth";
 import { currentAdmin } from "@/lib/admin";
+import { APP_NAME, BrandMark } from "@/components/Brand";
 import { btn, btnPrimary, Card, input } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -29,15 +30,17 @@ export default async function LoginPage({
   const message = errorText(error);
 
   return (
-    <div className="mx-auto mt-16 max-w-sm space-y-4">
-      <Card title="Sign in">
-        <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-300">
-          This dashboard is private. Use an admin Google account, or the admin password.
-        </p>
+    <div className="mx-auto mt-20 max-w-sm space-y-4">
+      <div className="flex items-center justify-center gap-3">
+        <BrandMark size={40} />
+        <div>
+          <div className="text-lg font-semibold tracking-tight">{APP_NAME}</div>
+          <div className="text-xs text-muted">Admin sign-in</div>
+        </div>
+      </div>
+      <Card>
         {message && (
-          <p className="mb-4 rounded-md bg-red-50 p-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
-            {message}
-          </p>
+          <p className="mb-4 rounded-md bg-danger/10 p-2 text-sm text-danger">{message}</p>
         )}
         <form
           action={async () => {
@@ -45,13 +48,13 @@ export default async function LoginPage({
             await signIn("google", { redirectTo: "/" });
           }}
         >
-          <button className={btnPrimary + " w-full justify-center py-2 text-sm"}>Continue with Google</button>
+          <button className={btnPrimary + " h-9 w-full justify-center text-sm"}>Continue with Google</button>
         </form>
 
-        <div className="my-4 flex items-center gap-3 text-xs text-zinc-400">
-          <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+        <div className="my-4 flex items-center gap-3 text-xs text-muted">
+          <span className="h-px flex-1 bg-line" />
           or
-          <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+          <span className="h-px flex-1 bg-line" />
         </div>
 
         <form
@@ -71,12 +74,12 @@ export default async function LoginPage({
             autoComplete="current-password"
             placeholder="Admin password"
             required
-            className={input + " w-full"}
+            className={input + " h-9 w-full"}
           />
-          <button className={btn + " w-full justify-center py-2 text-sm"}>Sign in with password</button>
+          <button className={btn + " h-9 w-full justify-center text-sm"}>Sign in with password</button>
         </form>
       </Card>
-      <p className="text-center text-xs text-zinc-500">
+      <p className="text-center text-xs text-muted">
         The password can only be changed by an admin signed in with Google.
       </p>
     </div>

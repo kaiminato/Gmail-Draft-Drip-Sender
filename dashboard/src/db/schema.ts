@@ -3,7 +3,6 @@ import {
   index,
   integer,
   pgTable,
-  real,
   text,
   timestamp,
   uuid,
@@ -32,9 +31,16 @@ export const accounts = pgTable(
     busy: boolean("busy").notNull().default(false),
     stopReason: text("stop_reason"),
     gmailTabOpen: boolean("gmail_tab_open").notNull().default(false),
+    tier: text("tier").notNull().default("normal"), // few | less | normal | many
+    tierSetAt: timestamp("tier_set_at", { withTimezone: true }),
+    dayTarget: integer("day_target"),
+    plannedLeft: integer("planned_left"),
+    restStart: text("rest_start"),
+    restEnd: text("rest_end"),
     nextSendAt: timestamp("next_send_at", { withTimezone: true }),
     lastSendAt: timestamp("last_send_at", { withTimezone: true }),
     remainingBucket: text("remaining_bucket").notNull().default("unknown"),
+    remainingCount: integer("remaining_count"),
     sentToday: integer("sent_today").notNull().default(0),
     sentDate: text("sent_date"),
     totalSent: integer("total_sent").notNull().default(0),
@@ -42,14 +48,11 @@ export const accounts = pgTable(
     blockCount: integer("block_count").notNull().default(0),
     consecutiveFailures: integer("consecutive_failures").notNull().default(0),
 
-    // Owned by the dashboard; pushed to the extension on every heartbeat.
-    minMinutes: real("min_minutes").notNull().default(10),
-    maxMinutes: real("max_minutes").notNull().default(50),
-    dailyLimit: integer("daily_limit").notNull().default(0),
-
-    // A queued start/stop, cleared when the extension acks it.
+    // A queued start/stop, cleared when the extension acks it. A start carries
+    // the tier to run on.
     pendingCommand: text("pending_command"),
     pendingCommandId: text("pending_command_id"),
+    pendingTier: text("pending_tier"),
     pendingCommandAt: timestamp("pending_command_at", { withTimezone: true }),
 
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),

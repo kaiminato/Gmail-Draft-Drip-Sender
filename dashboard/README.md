@@ -1,4 +1,4 @@
-# Draft Drip Dashboard
+# Kai Email Observer
 
 Admin-only web app that every Gmail Draft Drip Sender extension reports to. Admins sign
 in with an allow-listed Google account or with a shared admin password; extensions
@@ -22,10 +22,12 @@ sessions that already signed in with the old one; they expire on their own (30 d
 What it shows and does:
 
 - **Accounts** — every extension install, added automatically on its first heartbeat:
-  email, manager, status (running / stopped / empty / blocked / offline), last send,
-  drafts left (None / 1~10 / 10+), today and total sent, interval, daily cap. Start or stop
-  each one, set its interval and cap, assign it to a manager, or do any of that for every
-  account under a manager at once.
+  email, manager, the volume tier it is running on with today's progress, status
+  (running / stopped / empty / blocked / offline), exact drafts left (rows with fewer
+  than 5 are tinted, zero is red), last send, totals, extension version. Tick rows and
+  use the floating bar to start them on a tier (**few** 10–20, **less** 20–40, **normal**
+  40–60, **many** 60–80 a day) or stop them; with nothing ticked the same buttons act on
+  the whole filtered list. Each row also has its own Start ▾ / Switch ▾ and Stop.
 - **Managers** — labels you create and assign accounts to. Managers do not log in.
 - **Stats** — sends today / this week / this month / all time, blocks, bounces and failed
   cycles, split by manager and by account, plus a 30-day daily chart.
@@ -84,12 +86,13 @@ redirect URI on the OAuth client.
 
 ## How the extension talks to it
 
-`POST /api/ext/heartbeat` with `Authorization: Bearer <EXTENSION_API_KEY>`, once a minute
-per extension and immediately after anything notable. The body carries the extension's
-status snapshot, any queued events, and acks for commands it executed. The reply carries
-the settings the dashboard owns (`desired`) and a pending `command` (start/stop) if there
-is one. The route answers CORS preflight so the service worker can call it from an
-extension origin.
+`POST /api/ext/heartbeat` with `Authorization: Bearer <EXTENSION_API_KEY>`, every half
+minute per extension and immediately after anything notable. The body carries the
+extension's status snapshot (including the tier it runs on and today's plan), any queued
+events, and acks for commands it executed. The reply carries a pending `command` if there
+is one: `{ id, type: "start", tier }` or `{ id, type: "stop" }`. The dashboard pushes no
+settings; the extension is the source of truth for everything it reports. The route
+answers CORS preflight so the service worker can call it from an extension origin.
 
 Events are inserted by the id the extension generated, so a batch that is re-sent after
 a network failure is a no-op. Everything on the Stats page is computed from the `events`

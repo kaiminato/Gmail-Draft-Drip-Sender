@@ -33,6 +33,16 @@ export const STATUS_CLASS: Record<Status, string> = {
   offline: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
 };
 
+// Drafts-left level: fewer than LOW_DRAFTS is worth a nudge, zero is urgent.
+export const LOW_DRAFTS = 5;
+export type DraftsLevel = "zero" | "low" | "ok" | "unknown";
+export function draftsLevel(count: number | null | undefined, bucket?: string): DraftsLevel {
+  if (typeof count === "number" && count >= 0) return count === 0 ? "zero" : count < LOW_DRAFTS ? "low" : "ok";
+  if (bucket === "none") return "zero";
+  if (bucket === "1-10" || bucket === "10+") return "ok";
+  return "unknown";
+}
+
 export const BUCKET_LABEL: Record<string, string> = {
   none: "None",
   "1-10": "1~10",

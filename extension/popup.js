@@ -12,7 +12,7 @@ function fmtCountdown(ms) {
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
-  if (h > 0) return h + 'h ' + m + 'm'; // overnight and weekend holds
+  if (h > 0) return h + 'h ' + m + 'm';
   return m + ':' + String(s).padStart(2, '0');
 }
 
@@ -27,15 +27,29 @@ function fmtWhen(ts) {
   return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + fmtTime(ts);
 }
 
+const TIER_LABEL = { few: 'Few', less: 'Less', normal: 'Normal', many: 'Many' };
+
 function renderStatus() {
   if (!state) return;
   const box = $('status');
   const main = $('statusMain');
   const sub = $('statusSub');
+  const planEl = $('statusPlan');
 
   $('dot').classList.toggle('on', state.running);
-  $('toggle').textContent = state.running ? 'Stop' : 'Start';
-  $('toggle').classList.toggle('stop', state.running);
+  $('stop').hidden = !state.running;
+
+  for (const b of document.querySelectorAll('#tiers .tier')) {
+    const t = b.dataset.tier;
+    b.classList.toggle('active', state.running && state.tier === t);
+    b.classList.toggle('chosen', !state.running && state.tier === t);
+    b.title = state.running
+      ? (state.tier === t ? 'Running on ' + TIER_LABEL[t] : 'Switch to ' + TIER_LABEL[t] + ' without stopping')
+      : 'Start on ' + TIER_LABEL[t];
+  }
+  $('tierHint').textContent = state.running
+    ? 'Running on ' + TIER_LABEL[state.tier] + '. Pick another volume to change it, or Stop.'
+    : 'Pick a volume to start. Last used: ' + TIER_LABEL[state.tier] + '.';
 
   box.classList.remove('running', 'error', 'idle');
 
@@ -45,18 +59,34 @@ function renderStatus() {
     sub.textContent = 'Working in the Gmail tab.';
   } else if (state.running) {
     box.classList.add('running');
-    const left = state.nextSendAt - Date.now();
-    main.textContent = 'Next send in ' + fmtCountdown(left);
-    sub.textContent = state.nextSendAt
-      ? 'Scheduled for ' + fmtWhen(state.nextSendAt) + (state.lastMessage ? ' · ' + state.lastMessage : '')
-      : (state.lastMessage || '');
+    if (state.stopReason === 'daily_cap') {
+      main.textContent = 'Done for today';
+      sub.textContent = 'Target reached. A new plan is made after midnight' +
+        (state.nextSendAt ? ' (' + fmtWhen(state.nextSendAt) + ')' : '') + '.';
+    } else {
+      const left = state.nextSendAt - Date.now();
+      main.textContent = 'Next send in ' + fmtCountdown(left);
+      sub.textContent = state.nextSendAt
+        ? 'Scheduled for ' + fmtWhen(state.nextSendAt) + (state.lastMessage ? ' · ' + state.lastMessage : '')
+        : (state.lastMessage || '');
+    }
   } else {
     box.classList.add('idle');
     main.textContent = state.stopReason === 'admin' ? 'Stopped from the dashboard'
       : state.stopReason === 'blocked' ? 'Stopped: blocked'
       : state.stopReason === 'empty' ? 'Stopped: no drafts left'
       : 'Idle';
-    sub.textContent = state.lastMessage || 'Press Start to begin sending drafts.';
+    sub.textContent = state.lastMessage || 'Pick a volume to start.';
+  }
+
+  const plan = state.dayPlan;
+  if (plan && plan.dayTarget) {
+    planEl.hidden = false;
+    planEl.textContent = 'Today: ' + state.sentToday + ' / ' + plan.dayTarget + ' on ' + TIER_LABEL[plan.tier] +
+      (plan.times && plan.times.length ? ' · ' + plan.times.length + ' to go' : '') +
+      (plan.restStart ? ' · resting ' + plan.restStart + '–' + plan.restEnd : '');
+  } else {
+    planEl.hidden = true;
   }
 
   const acct = $('accountPill');
@@ -111,34 +141,18 @@ function renderStatus() {
   $('sendNow').disabled = !!state.busy;
 }
 
-function hm(v) {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || ''));
-  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
-}
-
 function renderSettings() {
-  $('minMinutes').value = state.minMinutes;
-  $('maxMinutes').value = state.maxMinutes;
   $('order').value = state.order;
-  $('dailyLimit').value = state.dailyLimit;
   $('sendFirstImmediately').checked = state.sendFirstImmediately;
   $('restoreView').checked = state.restoreView;
   $('checkInbox').checked = state.checkInbox;
   $('naturalPacing').checked = state.naturalPacing;
-  $('skipWeekends').checked = state.skipWeekends;
-  $('activeHours').checked = state.activeHours;
-  $('activeStart').value = state.activeStart;
-  $('activeEnd').value = state.activeEnd;
-  renderHours();
-}
-
-function renderHours() {
-  const on = $('activeHours').checked;
-  $('activeStart').disabled = !on;
-  $('activeEnd').disabled = !on;
-  const a = hm($('activeStart').value);
-  const b = hm($('activeEnd').value);
-  $('hoursWarn').hidden = !(on && a !== null && b !== null && a >= b);
+  if (state.tiers) {
+    for (const b of document.querySelectorAll('#tiers .tier')) {
+      const r = state.tiers[b.dataset.tier];
+      if (r) b.querySelector('.tier-range').textContent = r[0] + '–' + r[1] + ' / day';
+    }
+  }
 }
 
 function renderLog() {
@@ -171,7 +185,6 @@ async function refresh(full) {
   renderLog();
 }
 
-// Interval and daily cap are owned by the dashboard, so they are not sent.
 function pushSettings() {
   return send('SET_SETTINGS', {
     patch: {
@@ -179,38 +192,48 @@ function pushSettings() {
       sendFirstImmediately: $('sendFirstImmediately').checked,
       restoreView: $('restoreView').checked,
       checkInbox: $('checkInbox').checked,
-      naturalPacing: $('naturalPacing').checked,
-      skipWeekends: $('skipWeekends').checked,
-      activeHours: $('activeHours').checked,
-      activeStart: $('activeStart').value,
-      activeEnd: $('activeEnd').value
+      naturalPacing: $('naturalPacing').checked
     }
   }).then((s) => { state = { ...state, ...s }; renderStatus(); });
 }
 
-['order', 'sendFirstImmediately', 'restoreView', 'checkInbox', 'naturalPacing', 'skipWeekends']
+['order', 'sendFirstImmediately', 'restoreView', 'checkInbox', 'naturalPacing']
   .forEach((id) => $(id).addEventListener('change', pushSettings));
 
-['activeHours', 'activeStart', 'activeEnd'].forEach((id) => {
-  $(id).addEventListener('change', async () => {
-    renderHours();
-    await pushSettings();
+// A tier button starts the run on that tier, or switches tier while running.
+for (const b of document.querySelectorAll('#tiers .tier')) {
+  b.addEventListener('click', async () => {
+    const tier = b.dataset.tier;
+    const buttons = document.querySelectorAll('#tiers .tier');
+    buttons.forEach((x) => { x.disabled = true; });
+    try {
+      await pushSettings();
+      if (state.running) {
+        state = await send('SET_TIER', { tier });
+        renderStatus();
+        renderLog();
+      } else {
+        state = await send('START', { tier });
+        renderStatus();
+        // Starting hands the screen over to Gmail; get out of the way.
+        window.close();
+        return;
+      }
+    } finally {
+      buttons.forEach((x) => { x.disabled = false; });
+    }
   });
-});
+}
 
-$('toggle').addEventListener('click', async () => {
-  $('toggle').disabled = true;
-  const starting = !state.running;
+$('stop').addEventListener('click', async () => {
+  $('stop').disabled = true;
   try {
-    await pushSettings();
-    state = await send(starting ? 'START' : 'STOP');
+    state = await send('STOP');
     renderStatus();
     renderLog();
   } finally {
-    $('toggle').disabled = false;
+    $('stop').disabled = false;
   }
-  // Starting hands the screen over to Gmail; get out of the way.
-  if (starting) { window.close(); return; }
   setTimeout(() => refresh(false), 1200);
 });
 
@@ -234,18 +257,20 @@ $('clearSkips').addEventListener('click', async () => {
 // Copying beats retyping when several profiles are being compared.
 $('copyLog').addEventListener('click', async () => {
   const btn = $('copyLog');
+  const plan = state.dayPlan;
   const head = [
     'Gmail Draft Drip Sender v' + (state.version || '?') + ' - ' + new Date().toLocaleString(),
     'account ' + (state.accountEmail || 'unknown') + ' | device ' + (state.deviceId || '?') +
       ' | dashboard ' + (state.apiHost || 'not set') +
       (state.serverLastError ? ' (error: ' + state.serverLastError + ')' : ''),
-    'interval ' + state.minMinutes + '-' + state.maxMinutes + 'm | order ' + state.order +
-      ' | daily cap ' + state.dailyLimit + ' | stop reason ' + (state.stopReason || '-'),
-    'checkInbox ' + state.checkInbox +
-      ' | pacing ' + state.naturalPacing + ' | hours ' + state.activeHours +
-      ' | weekends skipped ' + state.skipWeekends,
+    'tier ' + state.tier + ' | order ' + state.order + ' | stop reason ' + (state.stopReason || '-') +
+      (plan ? ' | plan ' + state.sentToday + '/' + plan.dayTarget + ', ' + (plan.times || []).length + ' to go, rest ' +
+        plan.restStart + '-' + plan.restEnd + (plan.compressed ? ' (compressed)' : '') : ' | no plan'),
+    'checkInbox ' + state.checkInbox + ' | pacing ' + state.naturalPacing +
+      ' | sendFirst ' + state.sendFirstImmediately + ' | restoreView ' + state.restoreView,
     'sent today ' + state.sentToday + ' | total ' + state.totalSent +
       ' | skipped ' + state.skipIds.length + ' | bounced ' + (state.bounceCount || 0) +
+      ' | drafts left ' + (typeof state.remainingCount === 'number' ? state.remainingCount : '?') +
       ' | gmail tabs ' + state.gmailTabs,
     'running ' + state.running + (state.nextSendAt ? ' | next ' + new Date(state.nextSendAt).toLocaleString() : ''),
     ''

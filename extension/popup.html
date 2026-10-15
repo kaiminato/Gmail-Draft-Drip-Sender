@@ -21,29 +21,26 @@
     <div class="col col-controls">
       <div id="status" class="status idle">
         <div class="status-main" id="statusMain">Idle</div>
-        <div class="status-sub" id="statusSub">Press Start to begin sending drafts.</div>
+        <div class="status-sub" id="statusSub">Pick a volume to start.</div>
+        <div class="status-plan" id="statusPlan" hidden></div>
       </div>
 
       <div id="alertBox" class="alertbox" hidden>
         <strong>Gmail is blocking or limiting your mail</strong>
         <p id="alertText"></p>
-        <p class="alert-hint">Check your inbox. Pressing Start again continues anyway.</p>
+        <p class="alert-hint">Check your inbox. Starting again continues anyway.</p>
       </div>
 
-      <button id="toggle" class="primary">Start</button>
+      <div class="tiers" id="tiers">
+        <button class="tier" data-tier="few"><span class="tier-name">Few</span><span class="tier-range">10–20 / day</span></button>
+        <button class="tier" data-tier="less"><span class="tier-name">Less</span><span class="tier-range">20–40 / day</span></button>
+        <button class="tier" data-tier="normal"><span class="tier-name">Normal</span><span class="tier-range">40–60 / day</span></button>
+        <button class="tier" data-tier="many"><span class="tier-name">Many</span><span class="tier-range">60–80 / day</span></button>
+      </div>
+      <p class="hint hint-wide" id="tierHint">Pick a volume to start. While running, pick another to change it.</p>
+      <button id="stop" class="primary stop" hidden>Stop</button>
 
       <section class="card">
-        <div class="row">
-          <label for="minMinutes">Interval</label>
-          <div class="interval">
-            <input type="number" id="minMinutes" min="0.5" max="1440" step="1" disabled />
-            <span class="sep">to</span>
-            <input type="number" id="maxMinutes" min="0.5" max="1440" step="1" disabled />
-            <span class="unit">min</span>
-          </div>
-        </div>
-        <p class="hint">Set from the dashboard. Each wait is picked at random inside this range.</p>
-
         <div class="row">
           <label for="order">Pick draft</label>
           <select id="order">
@@ -53,29 +50,11 @@
           </select>
         </div>
 
-        <div class="row">
-          <label for="dailyLimit">Daily cap</label>
-          <input type="number" id="dailyLimit" min="0" max="2000" step="1" class="small" disabled />
-          <span class="unit">0 = off · set from the dashboard</span>
-        </div>
-
         <label class="check"><input type="checkbox" id="checkInbox" /> Check inbox for blocks before each send</label>
-        <label class="check"><input type="checkbox" id="sendFirstImmediately" /> Send one right away on Start</label>
+        <label class="check"><input type="checkbox" id="sendFirstImmediately" /> Send one right away on start</label>
         <label class="check"><input type="checkbox" id="restoreView" /> Return Gmail to the view I was on</label>
-        <p class="hint hint-wide">Gmail is brought to the front for each send, and opened if no Gmail tab exists.</p>
-      </section>
-
-      <section class="card">
-        <h2 class="card-title">Humanize</h2>
         <label class="check"><input type="checkbox" id="naturalPacing" /> Natural pacing and dwell time</label>
-        <label class="check"><input type="checkbox" id="skipWeekends" /> Skip weekends</label>
-        <label class="check"><input type="checkbox" id="activeHours" /> Only send between</label>
-        <div class="row hours">
-          <input type="time" id="activeStart" />
-          <span class="sep">and</span>
-          <input type="time" id="activeEnd" />
-        </div>
-        <p class="hint warn" id="hoursWarn" hidden>End time must be after the start time, so the hour limit is being ignored.</p>
+        <p class="hint hint-wide">Each day is planned like a person's: a night's rest, a few sessions, short gaps inside a session. Gmail is brought to the front for each send.</p>
       </section>
     </div>
 

@@ -2,9 +2,10 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireAdmin } from "@/lib/admin";
+import { isTier, type Tier } from "@/lib/tiers";
 
 function refresh() {
   revalidatePath("/", "layout");
@@ -13,10 +14,6 @@ function refresh() {
 function str(form: FormData, key: string): string {
   const v = form.get(key);
   return typeof v === "string" ? v.trim() : "";
-}
-
-function num(form: FormData, key: string): number {
-  return Number(str(form, key));
 }
 
 /* ---------- managers ---------- */
@@ -58,64 +55,61 @@ export async function setManager(form: FormData) {
   refresh();
 }
 
-export async function setInterval(form: FormData) {
-  await requireAdmin();
-  const accountId = str(form, "accountId");
-  let min = num(form, "minMinutes");
-  let max = num(form, "maxMinutes");
-  if (!accountId || !Number.isFinite(min) || !Number.isFinite(max)) return;
-  min = Math.min(1440, Math.max(0.5, min));
-  max = Math.min(1440, Math.max(0.5, max));
-  if (min > max) [min, max] = [max, min];
-  await db
-    .update(schema.accounts)
-    .set({ minMinutes: min, maxMinutes: max })
-    .where(eq(schema.accounts.id, accountId));
-  refresh();
+type Command = { type: "start"; tier: Tier } | { type: "stop" };
+
+function parseAction(action: string): Command | null {
+  if (action === "stop") return { type: "stop" };
+  const m = /^start:(\w+)$/.exec(action);
+  if (m && isTier(m[1])) return { type: "start", tier: m[1] };
+  return null;
 }
 
-export async function setDailyLimit(form: FormData) {
-  await requireAdmin();
-  const accountId = str(form, "accountId");
-  const cap = num(form, "dailyLimit");
-  if (!accountId || !Number.isFinite(cap)) return;
-  await db
-    .update(schema.accounts)
-    .set({ dailyLimit: Math.min(2000, Math.max(0, Math.floor(cap))) })
-    .where(eq(schema.accounts.id, accountId));
-  refresh();
+// Queues a command for a set of accounts in one statement. Each account gets
+// its own command id so its ack can be matched.
+async function queueFor(ids: string[], cmd: Command) {
+  if (!ids.length) return;
+  // A fresh id per row: generate them client-side and update in one go using
+  // a VALUES list joined on id.
+  const pairs = ids.map((id) => ({ id, cid: randomUUID() }));
+  const values = sql.join(
+    pairs.map((p) => sql`(${p.id}::uuid, ${p.cid})`),
+    sql`, `,
+  );
+  await db.execute(sql`
+    update accounts a
+    set pending_command = ${cmd.type},
+        pending_command_id = v.cid,
+        pending_tier = ${cmd.type === "start" ? cmd.tier : null},
+        pending_command_at = now()
+    from (values ${values}) as v(id, cid)
+    where a.id = v.id
+  `);
 }
 
-// Applies one interval + cap to every account, or every account under one
-// manager. Handy when a whole team's pacing changes at once.
-export async function setSettingsBulk(form: FormData) {
-  await requireAdmin();
-  const managerId = str(form, "managerId");
-  let min = num(form, "minMinutes");
-  let max = num(form, "maxMinutes");
-  const cap = num(form, "dailyLimit");
-  if (![min, max, cap].every(Number.isFinite)) return;
-  min = Math.min(1440, Math.max(0.5, min));
-  max = Math.min(1440, Math.max(0.5, max));
-  if (min > max) [min, max] = [max, min];
-  const set = { minMinutes: min, maxMinutes: max, dailyLimit: Math.min(2000, Math.max(0, Math.floor(cap))) };
-  if (managerId) {
-    await db.update(schema.accounts).set(set).where(eq(schema.accounts.managerId, managerId));
-  } else {
-    await db.update(schema.accounts).set(set);
-  }
-  refresh();
-}
-
+// One account, from its row or its page.
 export async function queueCommand(form: FormData) {
   await requireAdmin();
   const accountId = str(form, "accountId");
-  const type = str(form, "type");
-  if (!accountId || (type !== "start" && type !== "stop")) return;
-  await db
-    .update(schema.accounts)
-    .set({ pendingCommand: type, pendingCommandId: randomUUID(), pendingCommandAt: new Date() })
-    .where(eq(schema.accounts.id, accountId));
+  const cmd = parseAction(str(form, "action"));
+  if (!accountId || !cmd) return;
+  await queueFor([accountId], cmd);
+  refresh();
+}
+
+// The bulk bar: ticked rows, or (with none ticked) every account in the
+// current manager filter.
+export async function bulkAct(form: FormData) {
+  await requireAdmin();
+  const cmd = parseAction(str(form, "action"));
+  if (!cmd) return;
+  let ids = form.getAll("ids").filter((v): v is string => typeof v === "string" && v.length > 0);
+  if (!ids.length) {
+    const filter = str(form, "managerId");
+    const where = filter === "none" ? isNull(schema.accounts.managerId) : filter ? eq(schema.accounts.managerId, filter) : undefined;
+    const rows = await db.select({ id: schema.accounts.id }).from(schema.accounts).where(where);
+    ids = rows.map((r) => r.id);
+  }
+  await queueFor(ids, cmd);
   refresh();
 }
 
@@ -125,26 +119,8 @@ export async function cancelCommand(form: FormData) {
   if (!accountId) return;
   await db
     .update(schema.accounts)
-    .set({ pendingCommand: null, pendingCommandId: null, pendingCommandAt: null })
+    .set({ pendingCommand: null, pendingCommandId: null, pendingTier: null, pendingCommandAt: null })
     .where(eq(schema.accounts.id, accountId));
-  refresh();
-}
-
-// Start or stop every account under a manager (or all of them).
-export async function queueCommandBulk(form: FormData) {
-  await requireAdmin();
-  const managerId = str(form, "managerId");
-  const type = str(form, "type");
-  if (type !== "start" && type !== "stop") return;
-  const targets = managerId
-    ? await db.select({ id: schema.accounts.id }).from(schema.accounts).where(eq(schema.accounts.managerId, managerId))
-    : await db.select({ id: schema.accounts.id }).from(schema.accounts);
-  for (const t of targets) {
-    await db
-      .update(schema.accounts)
-      .set({ pendingCommand: type, pendingCommandId: randomUUID(), pendingCommandAt: new Date() })
-      .where(eq(schema.accounts.id, t.id));
-  }
   refresh();
 }
 
@@ -153,7 +129,15 @@ export async function deleteAccount(form: FormData) {
   const accountId = str(form, "accountId");
   if (!accountId) return;
   // Events cascade. The extension will re-register itself on its next beat if
-  // it is still alive, with a fresh row and default settings.
+  // it is still alive, with a fresh row.
   await db.delete(schema.accounts).where(eq(schema.accounts.id, accountId));
+  refresh();
+}
+
+export async function deleteAccounts(form: FormData) {
+  await requireAdmin();
+  const ids = form.getAll("ids").filter((v): v is string => typeof v === "string" && v.length > 0);
+  if (!ids.length) return;
+  await db.delete(schema.accounts).where(inArray(schema.accounts.id, ids));
   refresh();
 }

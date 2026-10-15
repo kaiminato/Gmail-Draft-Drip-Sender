@@ -1,7 +1,8 @@
 import { z } from "zod";
 
-// What the extension sends once a minute. Everything is optional-tolerant so
-// an older extension build never gets a 400 for a missing field.
+// What the extension sends every half minute. Everything is optional-tolerant
+// so an older extension build never gets a 400 for a missing field, and
+// unknown fields are dropped.
 const eventSchema = z
   .object({
     id: z.string().min(1).max(80),
@@ -15,6 +16,7 @@ const eventSchema = z
     message: z.string().max(2000).optional(),
     subjects: z.array(z.string().max(500)).max(20).optional(),
     source: z.string().max(50).optional(),
+    tier: z.string().max(20).optional(),
     late: z.boolean().optional(),
     remaining: z.number().nullable().optional(),
   })
@@ -29,22 +31,21 @@ export const heartbeatSchema = z.object({
   running: z.boolean().optional(),
   busy: z.boolean().optional(),
   stopReason: z.string().max(40).optional(),
+  tier: z.enum(["few", "less", "normal", "many"]).optional(),
+  tierSetAt: z.number().optional(),
+  dayTarget: z.number().int().nullable().optional(),
+  plannedLeft: z.number().int().nullable().optional(),
+  restStart: z.string().max(10).optional(),
+  restEnd: z.string().max(10).optional(),
   nextSendAt: z.number().optional(),
   lastSendAt: z.number().optional(),
   remainingBucket: z.enum(["unknown", "none", "1-10", "10+"]).optional(),
+  remainingCount: z.number().int().nullable().optional(),
   sentToday: z.number().int().nonnegative().optional(),
   totalSent: z.number().int().nonnegative().optional(),
   bounceCount: z.number().int().nonnegative().optional(),
   consecutiveFailures: z.number().int().nonnegative().optional(),
   gmailTabOpen: z.boolean().optional(),
-  settings: z
-    .object({
-      minMinutes: z.number().optional(),
-      maxMinutes: z.number().optional(),
-      dailyLimit: z.number().optional(),
-    })
-    .optional(),
-  serverSettingsAt: z.number().optional(),
   acks: z
     .array(
       z.object({
@@ -65,6 +66,5 @@ export type HeartbeatEvent = z.infer<typeof eventSchema>;
 export type HeartbeatReply = {
   ok: true;
   serverTime: number;
-  desired: { minMinutes: number; maxMinutes: number; dailyLimit: number };
-  command: { id: string; type: "start" | "stop" } | null;
+  command: { id: string; type: "start"; tier?: string } | { id: string; type: "stop" } | null;
 };

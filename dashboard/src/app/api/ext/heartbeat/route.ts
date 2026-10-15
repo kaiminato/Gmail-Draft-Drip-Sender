@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { heartbeatSchema, type HeartbeatEvent, type HeartbeatReply } from "@/lib/heartbeat";
+import { isTier } from "@/lib/tiers";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,17 +33,10 @@ function authorized(req: Request): boolean {
   return !!m && m[1].trim() === key;
 }
 
-function clampSettings(min: number, max: number, cap: number) {
-  let lo = Math.max(0.5, Number(min) || 10);
-  let hi = Math.max(0.5, Number(max) || 50);
-  if (lo > hi) [lo, hi] = [hi, lo];
-  return { minMinutes: lo, maxMinutes: hi, dailyLimit: Math.max(0, Math.floor(Number(cap) || 0)) };
-}
-
 function toEventRow(accountId: string, e: HeartbeatEvent) {
   const recipient =
     (e.recipients && e.recipients.length ? e.recipients.join(", ") : e.from) || null;
-  const reason = e.reason || e.code || e.source || null;
+  const reason = e.reason || e.code || (e.type === "started" ? [e.source, e.tier].filter(Boolean).join(" · ") : null) || null;
   let message = e.message || null;
   if (!message && e.subjects && e.subjects.length) message = e.subjects.join(" | ");
   if (e.type === "sent" && e.late) message = (message ? message + " " : "") + "(confirmed late)";
@@ -74,8 +68,8 @@ export async function POST(req: Request) {
   const hb = parsed.data;
   const now = new Date();
 
-  // Upsert the account by device id. Settings are NOT taken from the
-  // extension: the dashboard owns them and hands them back below.
+  // Upsert the account by device id. The extension is the source of truth
+  // for everything it reports, including the tier it is running on.
   const reported = {
     email: hb.email ? hb.email.toLowerCase() : null,
     version: hb.version ?? null,
@@ -83,9 +77,16 @@ export async function POST(req: Request) {
     busy: hb.busy ?? false,
     stopReason: hb.stopReason || null,
     gmailTabOpen: hb.gmailTabOpen ?? false,
+    tier: hb.tier ?? "normal",
+    tierSetAt: hb.tierSetAt ? new Date(hb.tierSetAt) : null,
+    dayTarget: hb.dayTarget ?? null,
+    plannedLeft: hb.plannedLeft ?? null,
+    restStart: hb.restStart || null,
+    restEnd: hb.restEnd || null,
     nextSendAt: hb.nextSendAt ? new Date(hb.nextSendAt) : null,
     lastSendAt: hb.lastSendAt ? new Date(hb.lastSendAt) : null,
     remainingBucket: hb.remainingBucket ?? "unknown",
+    remainingCount: hb.remainingCount ?? null,
     sentToday: hb.sentToday ?? 0,
     totalSent: hb.totalSent ?? 0,
     bounceCount: hb.bounceCount ?? 0,
@@ -131,21 +132,19 @@ export async function POST(req: Request) {
   if (pendingCommandId && acks.some((a) => a.id === pendingCommandId)) {
     await db
       .update(schema.accounts)
-      .set({ pendingCommand: null, pendingCommandId: null, pendingCommandAt: null })
+      .set({ pendingCommand: null, pendingCommandId: null, pendingTier: null, pendingCommandAt: null })
       .where(eq(schema.accounts.id, account.id));
     pendingCommand = null;
     pendingCommandId = null;
   }
 
-  const desired = clampSettings(account.minMinutes, account.maxMinutes, account.dailyLimit);
-  const reply: HeartbeatReply = {
-    ok: true,
-    serverTime: Date.now(),
-    desired,
-    command:
-      pendingCommand && pendingCommandId && (pendingCommand === "start" || pendingCommand === "stop")
-        ? { id: pendingCommandId, type: pendingCommand }
-        : null,
-  };
+  let command: HeartbeatReply["command"] = null;
+  if (pendingCommandId && pendingCommand === "start") {
+    command = { id: pendingCommandId, type: "start", tier: isTier(account.pendingTier) ? account.pendingTier : undefined };
+  } else if (pendingCommandId && pendingCommand === "stop") {
+    command = { id: pendingCommandId, type: "stop" };
+  }
+
+  const reply: HeartbeatReply = { ok: true, serverTime: Date.now(), command };
   return json(reply);
 }

@@ -2,14 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
 import { auth, signOut } from "@/auth";
+import { APP_NAME, BrandMark } from "@/components/Brand";
+import { NavLinks } from "@/components/NavLinks";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Draft Drip Dashboard",
-  description: "Status and control for every Gmail Draft Drip Sender extension.",
+  title: { default: APP_NAME, template: "%s · " + APP_NAME },
+  description: "Status, volume and control for every Gmail Draft Drip Sender install.",
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -19,37 +21,36 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-        <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
-            <div className="flex items-center gap-6">
-              <Link href="/" className="font-semibold">Draft Drip</Link>
-              {signedIn && (
-                <nav className="flex gap-4 text-sm text-zinc-600 dark:text-zinc-300">
-                  <Link href="/" className="hover:text-zinc-900 dark:hover:text-white">Accounts</Link>
-                  <Link href="/managers" className="hover:text-zinc-900 dark:hover:text-white">Managers</Link>
-                  <Link href="/stats" className="hover:text-zinc-900 dark:hover:text-white">Stats</Link>
-                  <Link href="/settings" className="hover:text-zinc-900 dark:hover:text-white">Settings</Link>
-                </nav>
-              )}
-            </div>
-            {signedIn && (
-              <form
-                action={async () => {
-                  "use server";
-                  await signOut({ redirectTo: "/login" });
-                }}
-                className="flex items-center gap-3 text-sm text-zinc-500"
-              >
-                <span className="hidden sm:inline">{who}</span>
-                <button className="rounded-md border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800">
-                  Sign out
-                </button>
-              </form>
-            )}
+      <body className="min-h-full bg-bg text-fg">
+        {signedIn ? (
+          <div className="flex min-h-screen">
+            <aside className="sticky top-0 flex h-screen w-14 shrink-0 flex-col border-r border-line bg-panel px-2 py-3 md:w-56 md:px-3">
+              <Link href="/" className="mb-5 flex items-center gap-2.5 px-1">
+                <BrandMark size={30} />
+                <span className="hidden text-[15px] font-semibold tracking-tight md:inline">{APP_NAME}</span>
+              </Link>
+              <NavLinks />
+              <div className="mt-auto border-t border-line pt-3">
+                <form
+                  action={async () => {
+                    "use server";
+                    await signOut({ redirectTo: "/login" });
+                  }}
+                  className="flex flex-col gap-2 px-1"
+                >
+                  <span className="hidden truncate text-xs text-muted md:block" title={who || ""}>{who}</span>
+                  <button className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-panel-2 hover:text-fg">
+                    <span className="md:hidden" aria-label="Sign out">⎋</span>
+                    <span className="hidden md:inline">Sign out</span>
+                  </button>
+                </form>
+              </div>
+            </aside>
+            <main className="min-w-0 flex-1 px-4 py-5 md:px-7">{children}</main>
           </div>
-        </header>
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">{children}</main>
+        ) : (
+          <main className="min-h-screen px-4 py-6">{children}</main>
+        )}
       </body>
     </html>
   );

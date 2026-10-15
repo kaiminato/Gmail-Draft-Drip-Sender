@@ -2,29 +2,37 @@
  * Owns the schedule. MV3 workers get torn down constantly, so all state lives in
  * chrome.storage.local and the next send is armed as a chrome.alarms one-shot.
  *
- * It also talks to the dashboard: a heartbeat every minute reports status and
- * queued events, and the reply carries the settings the dashboard owns plus
- * any start/stop command the admin has queued.
+ * Volume is chosen by tier (few / less / normal / many sends per day). Each day
+ * the planner (planner.js) lays out that day's send times like a person's day:
+ * a nightly rest, a few sessions, short gaps inside a session. The alarm just
+ * fires at the next planned time.
+ *
+ * It also talks to the dashboard: a heartbeat every half minute reports status
+ * and queued events, and the reply may carry a start (with a tier) or stop
+ * command the admin has queued.
  */
 
 importScripts('config.js');
 // Per-machine override (gitignored). Missing is the normal case.
 try { importScripts('config.local.js'); } catch (_) {}
+importScripts('planner.js');
 
 const CFG = Object.assign(
-  { apiBase: '', apiKey: '', heartbeatMinutes: 1 },
+  { apiBase: '', apiKey: '', heartbeatMinutes: 0.5 },
   (typeof self !== 'undefined' && self.DRIP_CONFIG) || {}
 );
 const SERVER_CONFIGURED = /^https?:\/\//.test(CFG.apiBase) && !!CFG.apiKey && CFG.apiKey !== 'REPLACE_ME';
+const Planner = self.DripPlanner;
+const TIERS = Planner.TIERS;
 
 const ALARM = 'gmail-draft-drip';
 const HEARTBEAT_ALARM = 'drip-heartbeat';
 const GMAIL_URL = 'https://mail.google.com/';
 const MAX_LOG = 200;
-// Failures never stop the run; every Nth one in a row raises a notification.
-const FAILURE_NOTIFY_EVERY = 5;
 const RETRY_DELAY_MS = 60 * 1000;
 const SKIP_RETRY_DELAY_MS = 35 * 1000; // alarms clamp below ~30s
+const FAILURE_NOTIFY_EVERY = 5;        // failures never stop the run; every Nth notifies
+const START_STAGGER_MIN = 20;          // dashboard-triggered starts spread over this
 const MAX_QUEUED_EVENTS = 500;
 const EVENTS_PER_HEARTBEAT = 100;
 const HEARTBEAT_TIMEOUT_MS = 15000;
@@ -32,17 +40,14 @@ const CYCLE_STALE_MS = 10 * 60000;
 
 const DEFAULTS = {
   running: false,
-  minMinutes: 10,
-  maxMinutes: 50,
+  tier: 'normal',
+  tierSetAt: 0,
+  dayPlan: null,           // see planner.js makeDayPlan()
+  alarmKind: 'send',       // 'send' = fire a cycle, 'replan' = new day, make a plan
   order: 'random',
   sendFirstImmediately: true,
-  dailyLimit: 0, // 0 = unlimited
   restoreView: true,
   naturalPacing: true,
-  activeHours: false,
-  activeStart: '09:00',
-  activeEnd: '18:00',
-  skipWeekends: false,
   checkInbox: true,
   pendingAlerts: [], // what stopped the run, shown in the popup
   ackedAlerts: [],   // alert ids the user has already waved through
@@ -60,16 +65,16 @@ const DEFAULTS = {
   deviceId: '',
   accountEmail: '',
   accountEmailAt: 0,
-  stopReason: '',        // '' | user | empty | blocked | failures | admin | daily_cap
+  stopReason: '',        // '' | user | empty | blocked | admin | daily_cap (= target reached)
   lastSendAt: 0,
   remainingBucket: 'unknown', // unknown | none | 1-10 | 10+
+  remainingCount: null,       // exact drafts left after the last cycle
   eventQueue: [],
   pendingAcks: [],
   executedCommandIds: [],
   serverLastTryAt: 0,
   serverLastOkAt: 0,
   serverLastError: '',
-  serverSettingsAt: 0,
   cycleStartedAt: 0
 };
 
@@ -91,11 +96,7 @@ function getVersion() {
   try { return chrome.runtime.getManifest().version; } catch (_) { return '?'; }
 }
 
-function todayKey() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
-}
+const todayKey = () => Planner.dateKey(Date.now());
 
 async function rollDailyCounter(st) {
   const key = todayKey();
@@ -139,18 +140,7 @@ function bucketOf(remaining) {
   return '10+';
 }
 
-// The clamp/swap rules for the settings the dashboard owns, shared by the
-// popup path and the heartbeat path.
-function sanitizeSettings(patch) {
-  const clean = {};
-  if (patch.minMinutes !== undefined) clean.minMinutes = Math.max(0.5, Number(patch.minMinutes) || 10);
-  if (patch.maxMinutes !== undefined) clean.maxMinutes = Math.max(0.5, Number(patch.maxMinutes) || 50);
-  if (clean.minMinutes !== undefined && clean.maxMinutes !== undefined && clean.minMinutes > clean.maxMinutes) {
-    const t = clean.minMinutes; clean.minMinutes = clean.maxMinutes; clean.maxMinutes = t;
-  }
-  if (patch.dailyLimit !== undefined) clean.dailyLimit = Math.max(0, Math.floor(Number(patch.dailyLimit) || 0));
-  return clean;
-}
+const validTier = (t) => (TIERS[t] ? t : null);
 
 /* ---------- event queue (survives worker teardown; flushed by heartbeat) ---------- */
 
@@ -181,73 +171,22 @@ async function enqueueEvent(type, data) {
   return ev;
 }
 
-/* ---------- scheduling ---------- */
+/* ---------- the day plan ---------- */
 
-function parseHM(hm) {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm || ''));
-  if (!m) return null;
-  const mins = Number(m[1]) * 60 + Number(m[2]);
-  return mins >= 0 && mins < 1440 ? mins : null;
-}
-
-// True only for a sane daytime window; anything else means "no hour limit".
-function usableWindow(st) {
-  if (!st.activeHours) return null;
-  const s = parseHM(st.activeStart);
-  const e = parseHM(st.activeEnd);
-  if (s === null || e === null || s >= e) return null;
-  return { s, e };
-}
-
-// The gap before the next send.
-function gapMs(st) {
-  const lo = Math.max(0.1, Math.min(st.minMinutes, st.maxMinutes));
-  const hi = Math.max(lo, Math.max(st.minMinutes, st.maxMinutes));
-  if (!st.naturalPacing) return (lo + Math.random() * (hi - lo)) * 60000;
-
-  // Averaging two draws gives a triangular spread: most gaps land mid-range,
-  // the extremes stay rare. A flat random interval is itself a machine pattern.
-  const u = (Math.random() + Math.random()) / 2;
-  let mins = lo + u * (hi - lo);
-  // Now and then, step away from the desk.
-  if (Math.random() < 0.15) mins *= 1.5 + Math.random() * 1.5;
-  return mins * 60000;
-}
-
-function startOfWindow(day, win) {
-  const d = new Date(day);
-  d.setHours(Math.floor(win.s / 60), win.s % 60, 0, 0);
-  // Drift into the window so it never opens at exactly the same second each day.
-  const slack = Math.min(25, (win.e - win.s) / 3) * 60000;
-  return new Date(d.getTime() + Math.random() * slack);
-}
-
-function nextDay(d) {
-  const x = new Date(d);
-  x.setDate(x.getDate() + 1);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-// Walks `whenMs` forward until it lands inside the active hours / weekdays.
-function nextAllowedTime(st, whenMs) {
-  const win = usableWindow(st);
-  if (!win && !st.skipWeekends) return whenMs;
-  let d = new Date(whenMs);
-  for (let guard = 0; guard < 16; guard++) {
-    const day = d.getDay();
-    if (st.skipWeekends && (day === 0 || day === 6)) {
-      d = win ? startOfWindow(nextDay(d), win) : nextDay(d);
-      continue;
-    }
-    if (win) {
-      const mins = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
-      if (mins < win.s) { d = startOfWindow(d, win); continue; }
-      if (mins >= win.e) { d = startOfWindow(nextDay(d), win); continue; }
-    }
-    return d.getTime();
-  }
-  return d.getTime();
+// Returns today's plan, making a new one when there is none, the day changed,
+// the tier changed, or `force` is set (a restart re-plans what is left).
+async function ensurePlan(force) {
+  let st = await rollDailyCounter(await getState());
+  const deviceId = st.deviceId || (await getDeviceId());
+  const cur = st.dayPlan;
+  const stale = !cur || cur.date !== todayKey() || cur.tier !== st.tier;
+  if (!stale && !force) return cur;
+  const plan = Planner.makeDayPlan({
+    deviceId, tier: st.tier, naturalPacing: st.naturalPacing, fromMs: Date.now(), sentToday: st.sentToday
+  });
+  await setState({ dayPlan: plan });
+  await log('info', Planner.describePlan(plan, st.sentToday));
+  return plan;
 }
 
 function describeWhen(ts) {
@@ -269,18 +208,37 @@ function describeWhen(ts) {
   return d.toLocaleDateString([], { weekday: 'long' }) + ' at ' + time;
 }
 
-async function schedule(delayMs, note) {
-  const st = await getState();
-  const raw = Date.now() + delayMs;
-  const when = nextAllowedTime(st, raw);
-  await setState({ nextSendAt: when });
+async function scheduleAt(when, note, kind) {
+  await setState({ nextSendAt: when, alarmKind: kind || 'send' });
   await chrome.alarms.clear(ALARM);
   chrome.alarms.create(ALARM, { when });
-  if (note) {
-    const held = when - raw > 60000 ? ' Outside sending hours, so holding.' : '';
-    await log('info', note + held + ' Next send ' + describeWhen(when) + '.');
-  }
+  if (note) await log('info', note + ' Next send ' + describeWhen(when) + '.');
   return when;
+}
+
+const schedule = (delayMs, note, kind) => scheduleAt(Date.now() + delayMs, note, kind);
+
+function msUntilTomorrow() {
+  const d = new Date();
+  d.setHours(24, 2, 0, 0); // just past local midnight
+  return Math.max(60000, d.getTime() - Date.now());
+}
+
+// Arms the alarm for the next planned time, dropping any that already passed
+// (a planned time missed while retrying is skipped, never piled up). With
+// nothing left for today the run holds until a new plan after midnight.
+async function scheduleNextPlanned(note) {
+  const plan = await ensurePlan(false);
+  const now = Date.now();
+  const left = plan.times.filter((t) => t > now);
+  if (left.length !== plan.times.length) await setState({ dayPlan: { ...plan, times: left } });
+  if (left.length) {
+    await setState({ stopReason: '' });
+    return scheduleAt(left[0], note, 'send');
+  }
+  await setState({ stopReason: 'daily_cap' });
+  const when = Date.now() + msUntilTomorrow() + Math.random() * 10 * 60000;
+  return scheduleAt(when, 'Target reached for today (' + plan.dayTarget + '). New plan after midnight.', 'replan');
 }
 
 // `code` is the machine-readable reason the dashboard shows; `message` is the
@@ -293,13 +251,8 @@ async function stop(code, message, level) {
   await enqueueEvent('stopped', { reason: code || 'user', message: message || '' });
 }
 
-function msUntilTomorrow() {
-  const d = new Date();
-  d.setHours(24, 2, 0, 0); // just past local midnight
-  return Math.max(60000, d.getTime() - Date.now());
-}
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const rand = (a, b) => a + Math.random() * (b - a);
 
 /* ---------- gmail tab plumbing ---------- */
 
@@ -330,8 +283,8 @@ function waitForTabComplete(tabId, timeout = 45000) {
 async function ensureContentScript(tabId) {
   try {
     const pong = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
-    // A copy from an older build answers too; replace it so new messages
-    // (GET_ACCOUNT, GMAIL_READY) are understood.
+    // A copy from an older build answers too; replace it so new messages are
+    // understood.
     if (pong && pong.ok && pong.version === getVersion()) return true;
   } catch (_) { /* not injected yet */ }
   try {
@@ -478,13 +431,6 @@ async function runCycle(manual) {
   try {
     let st = await rollDailyCounter(await getState());
 
-    if (!manual && st.dailyLimit > 0 && st.sentToday >= st.dailyLimit) {
-      await setState({ stopReason: 'daily_cap' });
-      await log('warn', 'Daily limit of ' + st.dailyLimit + ' reached. Pausing until tomorrow.');
-      await schedule(msUntilTomorrow(), 'Resuming after midnight.');
-      return { ok: false, code: 'DAILY_LIMIT' };
-    }
-
     const got = await acquireGmailTab();
     if (got.error) return fail(got.error, got.message);
     const tab = got.tab;
@@ -521,8 +467,9 @@ async function runCycle(manual) {
       }
     }
 
-    const bucket = bucketOf(res.remaining);
-    if (bucket) await setState({ remainingBucket: bucket });
+    if (typeof res.remaining === 'number' && res.remaining >= 0) {
+      await setState({ remainingCount: res.remaining, remainingBucket: bucketOf(res.remaining) });
+    }
 
     if (res.ok && res.code === 'SENT') {
       st = await rollDailyCounter(await getState());
@@ -550,7 +497,7 @@ async function runCycle(manual) {
       if (id && !cur.skipIds.includes(id)) await setState({ skipIds: [...cur.skipIds, id] });
       await log('warn', res.message);
     } else if (res.code === 'NO_DRAFTS') {
-      await setState({ remainingBucket: 'none' });
+      await setState({ remainingBucket: 'none', remainingCount: 0 });
       await log('info', res.message);
     } else {
       await log(res.code === 'ALL_SKIPPED' ? 'info' : 'warn',
@@ -576,16 +523,9 @@ async function tick(manual) {
   if (!st.running) return res;
 
   switch (res.code) {
-    case 'SENT': {
-      if (st.dailyLimit > 0 && st.sentToday >= st.dailyLimit) {
-        await setState({ stopReason: 'daily_cap' });
-        await log('warn', 'Daily limit of ' + st.dailyLimit + ' reached. Pausing until tomorrow.');
-        await schedule(msUntilTomorrow(), 'Resuming after midnight.');
-      } else {
-        await schedule(gapMs(st), 'Scheduled.');
-      }
+    case 'SENT':
+      await scheduleNextPlanned('Sent.');
       break;
-    }
     case 'BLOCKED': {
       const alerts = st.pendingAlerts || [];
       const n = alerts.length;
@@ -614,7 +554,6 @@ async function tick(manual) {
       // You are writing something yourself - wait it out, do not count it as a failure.
       await schedule(RETRY_DELAY_MS, 'Waiting for your compose window to close.');
       break;
-    case 'DAILY_LIMIT':
     case 'BUSY':
       break;
     default: {
@@ -633,9 +572,11 @@ async function tick(manual) {
   return res;
 }
 
-/* ---------- start / stop ---------- */
+/* ---------- start / stop / tier ---------- */
 
-async function start(source) {
+// `source` is 'user' (popup) or 'admin' (dashboard command). A tier, when
+// given, becomes the account's tier before planning.
+async function start(source, tier) {
   let st = await rollDailyCounter(await getState());
   // Pressing Start with alerts on screen means "I have seen those" - remember
   // them so the same bounce cannot stop the run a second time.
@@ -644,31 +585,48 @@ async function start(source) {
     st = await setState({ ackedAlerts: acked.slice(-50), pendingAlerts: [] });
     await log('info', 'Acknowledged ' + acked.length + ' earlier delivery alert(s).');
   }
-  await setState({ running: true, consecutiveFailures: 0, stopReason: '' });
+  const t = validTier(tier) || validTier(st.tier) || 'normal';
+  const tierPatch = t !== st.tier ? { tier: t, tierSetAt: Date.now() } : {};
+  await setState({ running: true, consecutiveFailures: 0, stopReason: '', ...tierPatch });
   await setBadge(true);
   // The version is stamped here so the log always says which build produced it.
   await log('info', 'Started v' + getVersion() + (source === 'admin' ? ' from the dashboard' : '') +
-    '. Interval ' + st.minMinutes + '-' + st.maxMinutes + ' minutes, ' +
+    ' on "' + t + '" (' + TIERS[t][0] + '-' + TIERS[t][1] + ' a day), ' +
     ({ oldest: 'oldest draft first', newest: 'newest draft first', random: 'random draft' }[st.order] || st.order) + '.');
-  await enqueueEvent('started', {
-    source: source || 'user',
-    minMinutes: st.minMinutes, maxMinutes: st.maxMinutes, dailyLimit: st.dailyLimit
-  });
+  await enqueueEvent('started', { source: source || 'user', tier: t });
+  const plan = await ensurePlan(true);
 
-  if (st.sendFirstImmediately) {
-    // "Right away" still respects the sending window - pressing Start at
-    // 11pm should not fire when you have limited yourself to 9-6.
-    const now = Date.now();
-    const holding = nextAllowedTime(st, now) - now > 60000;
-    await schedule(1000, holding ? 'Started outside sending hours.' : '');
-    if (!holding) tick(false); // fire now; the alarm is a safety net if the worker dies
+  if (source === 'admin') {
+    // Fifty accounts started together must not open Gmail together.
+    const delay = rand(0.2, START_STAGGER_MIN) * 60000;
+    await schedule(delay, 'Starting in ' + Math.round(delay / 60000) + ' min (staggered).');
+  } else if (st.sendFirstImmediately && plan.times.length) {
+    await schedule(1000, '');
+    tick(false); // fire now; the alarm is a safety net if the worker dies
   } else {
-    await schedule(gapMs(st), 'Waiting for the first send.');
+    await scheduleNextPlanned('Following today\'s plan.');
   }
   return getState();
 }
 
-/* ---------- dashboard: heartbeat, settings, commands ---------- */
+// Changes the tier; a running account re-plans the rest of the day.
+async function setTier(tier, source) {
+  const t = validTier(tier);
+  if (!t) return getState();
+  const st = await getState();
+  if (st.tier === t) return st;
+  await setState({ tier: t, tierSetAt: Date.now() });
+  await log('info', 'Tier set to "' + t + '" (' + TIERS[t][0] + '-' + TIERS[t][1] + ' a day)' +
+    (source === 'admin' ? ' from the dashboard' : '') + '.');
+  if (st.running) {
+    await ensurePlan(true);
+    await scheduleNextPlanned('Re-planned.');
+  }
+  scheduleHeartbeatSoon();
+  return getState();
+}
+
+/* ---------- dashboard: heartbeat and commands ---------- */
 
 async function getDeviceId() {
   const st = await getState();
@@ -682,7 +640,7 @@ async function ensureHeartbeatAlarm() {
   try {
     const existing = await chrome.alarms.get(HEARTBEAT_ALARM);
     if (existing) return;
-    const period = Math.max(0.5, Number(CFG.heartbeatMinutes) || 1);
+    const period = Math.max(0.5, Number(CFG.heartbeatMinutes) || 0.5);
     chrome.alarms.create(HEARTBEAT_ALARM, { delayInMinutes: 0.1, periodInMinutes: period });
   } catch (_) {}
 }
@@ -692,6 +650,7 @@ async function collectHeartbeat(trigger) {
   const deviceId = st.deviceId || (await getDeviceId());
   const tabs = await chrome.tabs.query({ url: '*://mail.google.com/*' });
   const cycling = busy || (st.cycleStartedAt > 0 && Date.now() - st.cycleStartedAt < CYCLE_STALE_MS);
+  const plan = st.dayPlan && st.dayPlan.date === todayKey() ? st.dayPlan : null;
   return {
     deviceId,
     email: st.accountEmail || null,
@@ -701,16 +660,21 @@ async function collectHeartbeat(trigger) {
     running: !!st.running,
     busy: cycling,
     stopReason: st.stopReason || '',
-    nextSendAt: st.nextSendAt || 0,
+    tier: st.tier,
+    tierSetAt: st.tierSetAt || 0,
+    dayTarget: plan ? plan.dayTarget : null,
+    plannedLeft: plan ? plan.times.length : null,
+    restStart: plan ? plan.restStart : '',
+    restEnd: plan ? plan.restEnd : '',
+    nextSendAt: st.running ? st.nextSendAt || 0 : 0,
     lastSendAt: st.lastSendAt || 0,
     remainingBucket: st.remainingBucket || 'unknown',
+    remainingCount: typeof st.remainingCount === 'number' ? st.remainingCount : null,
     sentToday: st.sentToday || 0,
     totalSent: st.totalSent || 0,
     bounceCount: st.bounceCount || 0,
     consecutiveFailures: st.consecutiveFailures || 0,
     gmailTabOpen: tabs.length > 0,
-    settings: { minMinutes: st.minMinutes, maxMinutes: st.maxMinutes, dailyLimit: st.dailyLimit },
-    serverSettingsAt: st.serverSettingsAt || 0,
     acks: st.pendingAcks || [],
     events: (st.eventQueue || []).slice(0, EVENTS_PER_HEARTBEAT)
   };
@@ -720,7 +684,7 @@ let heartbeatInFlight = null;
 let heartbeatSoonTimer = null;
 
 // Event-driven beats are debounced and skipped while the server is known to
-// be down; the minute alarm keeps retrying regardless.
+// be down; the periodic alarm keeps retrying regardless.
 function scheduleHeartbeatSoon() {
   if (!SERVER_CONFIGURED) return;
   if (heartbeatSoonTimer) return;
@@ -779,7 +743,6 @@ function sendHeartbeat(trigger) {
       });
     });
 
-    if (reply && reply.desired) await applyServerSettings(reply.desired);
     if (reply && reply.command) await executeCommand(reply.command);
     // More events may be waiting if the queue was long.
     const left = (await getState()).eventQueue.length;
@@ -787,24 +750,6 @@ function sendHeartbeat(trigger) {
     return true;
   })().finally(() => { heartbeatInFlight = null; });
   return heartbeatInFlight;
-}
-
-async function applyServerSettings(desired) {
-  const clean = sanitizeSettings(desired || {});
-  const st = await getState();
-  const changed = Object.keys(clean).filter((k) => clean[k] !== st[k]);
-  await setState({ ...clean, serverSettingsAt: Date.now() });
-  if (!changed.length) return;
-  const next = { ...st, ...clean };
-  await log('info', 'Settings updated from the dashboard: interval ' + next.minMinutes + '-' +
-    next.maxMinutes + ' min, daily cap ' + (next.dailyLimit || 'off') + '.');
-  // An armed send further out than the new maximum would ignore the change.
-  if (st.running && st.nextSendAt && (changed.includes('minMinutes') || changed.includes('maxMinutes'))) {
-    const maxMs = Math.max(next.minMinutes, next.maxMinutes) * 60000;
-    if (st.nextSendAt - Date.now() > maxMs) {
-      await schedule(gapMs(next), 'Interval changed by dashboard.');
-    }
-  }
 }
 
 async function executeCommand(cmd) {
@@ -822,10 +767,13 @@ async function executeCommand(cmd) {
     // The server did not see our ack yet; repeat it, do not re-run it.
     await pushAck('done', 'already applied');
   } else if (cmd.type === 'start') {
+    const tier = validTier(cmd.tier);
     if (st.running) {
+      // Already running: a different tier is applied, nothing else changes.
+      if (tier && tier !== st.tier) await setTier(tier, 'admin');
       await pushAck('done', 'already running');
     } else {
-      await start('admin');
+      await start('admin', tier);
       await pushAck('done', '');
     }
   } else if (cmd.type === 'stop') {
@@ -852,6 +800,13 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== ALARM) return;
   const st = await getState();
   if (!st.running) return;
+  if (st.alarmKind === 'replan') {
+    // A new day: make the plan and wait for its first time.
+    await rollDailyCounter(st);
+    await ensurePlan(true);
+    await scheduleNextPlanned('New day.');
+    return;
+  }
   await tick(false);
 });
 
@@ -861,7 +816,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await ensureHeartbeatAlarm();
   if (!st.running) return;
   const existing = await chrome.alarms.get(ALARM);
-  if (!existing) await schedule(RETRY_DELAY_MS, 'Browser restarted.');
+  if (!existing) await scheduleNextPlanned('Browser restarted.');
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -898,8 +853,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const tabs = await chrome.tabs.query({ url: '*://mail.google.com/*' });
         let apiHost = '';
         try { apiHost = new URL(CFG.apiBase).host; } catch (_) {}
+        const plan = st.dayPlan && st.dayPlan.date === todayKey() ? st.dayPlan : null;
         return {
           ...st,
+          dayPlan: plan,
+          tiers: TIERS,
           gmailTabs: tabs.length,
           busy: busy || (st.cycleStartedAt > 0 && Date.now() - st.cycleStartedAt < CYCLE_STALE_MS),
           version: getVersion(),
@@ -912,23 +870,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'SET_SETTINGS':
       reply((async () => {
         const patch = msg.patch || {};
-        // Interval and daily cap are owned by the dashboard and ignored here.
         const clean = {};
         if (patch.order !== undefined) clean.order = patch.order;
         if (patch.sendFirstImmediately !== undefined) clean.sendFirstImmediately = !!patch.sendFirstImmediately;
         if (patch.restoreView !== undefined) clean.restoreView = !!patch.restoreView;
         if (patch.naturalPacing !== undefined) clean.naturalPacing = !!patch.naturalPacing;
         if (patch.checkInbox !== undefined) clean.checkInbox = !!patch.checkInbox;
-        if (patch.activeHours !== undefined) clean.activeHours = !!patch.activeHours;
-        if (patch.skipWeekends !== undefined) clean.skipWeekends = !!patch.skipWeekends;
-        if (patch.activeStart !== undefined && parseHM(patch.activeStart) !== null) clean.activeStart = patch.activeStart;
-        if (patch.activeEnd !== undefined && parseHM(patch.activeEnd) !== null) clean.activeEnd = patch.activeEnd;
         return setState(clean);
       })());
       return true;
 
     case 'START':
-      reply(start('user'));
+      reply(start('user', msg.tier));
+      return true;
+
+    case 'SET_TIER':
+      reply(setTier(msg.tier, 'user'));
       return true;
 
     case 'STOP':
@@ -942,9 +899,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       reply((async () => {
         const res = await runCycle(true);
         const st = await getState();
-        if (st.running && res.code === 'SENT') {
-          await schedule(gapMs(st), 'Scheduled.');
-        }
+        if (st.running && res.code === 'SENT') await scheduleNextPlanned('Sent.');
         return { result: res, state: await getState() };
       })());
       return true;

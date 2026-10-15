@@ -68,7 +68,7 @@ export function stopReasonLabel(reason: string | null | undefined): string {
     case "empty": return "no drafts left";
     case "blocked": return "blocked by Gmail";
     case "failures": return "too many failures";
-    case "daily_cap": return "daily cap reached";
+    case "daily_cap": return "target reached for today";
     default: return reason || "";
   }
 }

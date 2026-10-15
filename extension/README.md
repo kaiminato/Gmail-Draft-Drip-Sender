@@ -45,31 +45,44 @@ it. Then it waits a random amount of time inside the interval and does it again.
 
 It stops on its own when the Drafts folder is empty.
 
-## Settings
+## Volume and settings
 
-Interval and daily cap are **set on the dashboard**, per account or for a whole manager's
-accounts at once; the popup shows them read-only. Everything else is local to the popup.
+There is no interval to set. You choose a **volume tier** and the extension plans each
+day around it:
+
+| Tier | Sends per day |
+| --- | --- |
+| **Few** | 10–20 |
+| **Less** | 20–40 |
+| **Normal** | 40–60 |
+| **Many** | 60–80 |
+
+The four tier buttons in the popup start the run on that tier; while running, pressing
+another tier switches to it without stopping. The dashboard has the same four buttons
+per account and for many accounts at once. Whichever side pressed last wins, and the
+dashboard always shows the tier an account is actually running.
+
+Everything else is local to the popup:
 
 | Setting | What it does |
 | --- | --- |
-| **Interval** (dashboard) | Low and high bound, in minutes. Each wait is drawn at random between them. Default 10–50. |
-| **Daily cap** (dashboard) | Stop after N sends per day, resuming after midnight. `0` turns it off. |
 | **Pick draft** | Random (default), oldest first, or newest first. |
 | **Check inbox for blocks before each send** | Scans the inbox before every send and stops the run if Gmail is blocking or limiting you. Ordinary bounces are logged instead. On by default. See below. |
-| **Send one right away on Start** | Fires the first draft immediately instead of waiting out an interval first. |
+| **Send one right away on start** | Fires the first draft immediately instead of waiting for the first planned time. |
 | **Return Gmail to the view I was on** | Restores your previous Gmail view after each send. |
+| **Natural pacing and dwell time** | Triangular gaps inside a session, in-page dwell, cursor drift. On by default. |
 
 **Send one now** runs a single send immediately, which is the fastest way to confirm it
 works before leaving it running.
 
 ## The dashboard link
 
-- **Heartbeat.** Once a minute, and straight after anything notable, the extension posts
-  its status to the dashboard: account email, running or not and why it stopped, last send
-  time, how many drafts are left (none / 1–10 / 10+, as of the last cycle), today's and
-  total counts, bounces. The reply carries the interval and cap the dashboard holds for
-  this account, which are applied immediately, and any start/stop command the admin
-  queued, which is executed and acknowledged.
+- **Heartbeat.** Every half minute, and straight after anything notable, the extension
+  posts its status to the dashboard: account email, running or not and why it stopped,
+  the tier, today's plan (target, sends left, rest window), last send time, exactly how
+  many drafts are left as of the last cycle, today's and total counts, bounces. The reply
+  carries any start (with a tier) or stop command the admin queued, which is executed
+  and acknowledged.
 - **Events.** Every send, failure, bounce, block, start and stop is queued locally and
   delivered with the next heartbeat; the dashboard's statistics are built from these.
   The queue survives the worker being torn down and the dashboard being unreachable, and
@@ -87,24 +100,33 @@ works before leaving it running.
 The **copy** button's log header includes the account, device id and dashboard host, so a
 pasted log says which install it came from.
 
-## Humanizing
+## Humanizing: the day plan
 
-A fixed cadence is the giveaway: a message every 20 minutes on the dot, at 3am, on a
-Sunday, is not a person working through a list. These settings shape the rhythm.
+A fixed cadence is the giveaway: a message every 20 minutes on the dot, around the clock,
+is not a person working through a list. So each day is planned to look like one
+(`planner.js`):
 
-| Setting | What it does |
-| --- | --- |
-| **Natural pacing and dwell time** | Gaps come from a triangular spread rather than a flat one, so most land mid-range and the extremes stay rare. Roughly one gap in seven stretches to 1.5–3x as a longer break. Inside the page it also pauses to read each draft for 1.4–4.2s before sending, drifts the cursor onto buttons instead of teleporting onto them, and now and then scrolls the list before picking. |
-| **Skip weekends** | Saturday and Sunday are pushed to Monday morning. **Off by default.** |
-| **Only send between** | Confines sending to a daytime window, suggested 09:00–18:00. The window opens at a different minute each day (up to 25 minutes of drift) instead of at the same second. **Off by default.** |
+- **A daily count** drawn from the tier's range. It is fixed for the day, so a restart
+  mid-day only plans what is still owed.
+- **A night's rest** of six hours, starting somewhere between 22:30 and 01:30. The start
+  minute is fixed per account (derived from the install id) and drifts up to 45 minutes
+  each day, so fifty accounts do not all go quiet at the same minute, and none of them
+  sends at 4am.
+- **Two to six sessions** across the awake hours, each holding a share of the count,
+  placed at random with at least 45 quiet minutes between them.
+- **Short gaps inside a session**, 4–12 minutes, drawn from a triangular spread. If the
+  count will not fit in the awake time, the gaps are compressed and the log says so.
+- **Staggered starts.** A start from the dashboard waits a random 0–20 minutes first,
+  so "Start all" on fifty accounts does not open fifty Gmail tabs at once.
 
-Only natural pacing is on out of the box, which puts a typical gap at about 21 minutes and
-otherwise sends around the clock. Tick the other two if you want sending confined to
-working hours — with both on, the day is bounded to nine hours and Friday evening rolls to
-Monday around 09:10.
+The popup's status line shows today's plan ("23 / 56 today · resting 23:40–05:40") and
+the activity log records each day's plan when it is made. After the last planned send
+the run holds until a new plan is made just after midnight.
 
-The dwell time is not purely cosmetic — it doubles as the beat Gmail needs to hydrate a
-draft's recipients and body before a send will take.
+Natural pacing also pauses to read each draft for 1.4–4.2 s before sending, drifts the
+cursor onto buttons instead of teleporting onto them, and now and then scrolls the list
+before picking. The dwell time is not purely cosmetic — it doubles as the beat Gmail
+needs to hydrate a draft's recipients and body before a send will take.
 
 ### What this does not do
 
@@ -323,7 +345,8 @@ extension reload is still the reliable move.
   each send. That's the automation working — it's driving the real UI, the same as
   clicking yourself.
 - **Gmail's sending limits still apply** (roughly 500 messages/day on a personal account,
-  2000 on Workspace). The daily cap is there to help you stay under them.
+  2000 on Workspace). Even the "many" tier stays far under them; the risk is reputation,
+  not the hard limit.
 - **Holds are visible.** While it waits out a night or a weekend the popup shows the
   countdown in hours and the activity log says why.
 - **Gmail's HTML is obfuscated and changes.** Selectors have fallbacks, but if Google
@@ -343,6 +366,7 @@ extension reload is still the reliable move.
 | --- | --- |
 | `manifest.json` | MV3 manifest |
 | `config.js` | Dashboard URL and API key placeholders; override in gitignored `config.local.js` |
-| `background.js` | Service worker: schedule, retries, counters, log, heartbeat and event queue, dashboard commands, bringing Gmail to the front |
+| `planner.js` | The day planner: tiers, rest block, sessions, gaps. Pure functions; `node extension/test/planner.test.js` checks them |
+| `background.js` | Service worker: follows the plan, retries, counters, log, heartbeat and event queue, dashboard commands, bringing Gmail to the front |
 | `content.js` | Runs inside Gmail: checks the inbox, finds a draft, opens it, clicks Send; reads the signed-in address |
 | `popup.html` / `.css` / `.js` | The Start/Stop panel |
