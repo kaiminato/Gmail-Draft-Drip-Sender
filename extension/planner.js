@@ -43,21 +43,71 @@
     return (hashStr(seed) % 100000) / 100000;
   }
 
+  /* ---------- the clock ---------- */
+
+  // Every account can follow one zone (set from config), so "today", the
+  // nightly rest and the midnight re-plan agree across machines in different
+  // places. Unset, the machine's own clock is used.
+  let TIME_ZONE = null;
+  const partsFmt = {};
+  function setTimeZone(tz) {
+    TIME_ZONE = null;
+    if (tz) {
+      try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); TIME_ZONE = String(tz); } catch (_) {}
+    }
+    return TIME_ZONE;
+  }
+  const timeZone = () => TIME_ZONE;
+
+  // Calendar parts of an instant: year, month (1-12), day, hour, minute.
+  function parts(ms) {
+    if (!TIME_ZONE) {
+      const d = new Date(ms);
+      return { y: d.getFullYear(), mo: d.getMonth() + 1, d: d.getDate(), h: d.getHours(), mi: d.getMinutes() };
+    }
+    const f = partsFmt[TIME_ZONE] || (partsFmt[TIME_ZONE] = new Intl.DateTimeFormat('en-US', {
+      timeZone: TIME_ZONE, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+    }));
+    const o = {};
+    for (const p of f.formatToParts(ms)) o[p.type] = p.value;
+    return { y: +o.year, mo: +o.month, d: +o.day, h: (+o.hour) % 24, mi: +o.minute };
+  }
+
+  // The zone's offset from UTC at an instant, in ms (minute precision).
+  function offsetAt(ms) {
+    const p = parts(ms);
+    return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi) - Math.floor(ms / MS_MIN) * MS_MIN;
+  }
+
   function localMidnight(ms) {
-    const d = new Date(ms);
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
+    if (!TIME_ZONE) {
+      const d = new Date(ms);
+      d.setHours(0, 0, 0, 0);
+      return d.getTime();
+    }
+    const p = parts(ms);
+    let t = Date.UTC(p.y, p.mo - 1, p.d) - offsetAt(ms);
+    // Across a DST change the offset at midnight differs from the one now.
+    const q = parts(t);
+    if (q.h !== 0 || q.mi !== 0 || q.d !== p.d) t = Date.UTC(p.y, p.mo - 1, p.d) - offsetAt(t);
+    return t;
+  }
+
+  // The midnight that starts the day after the one `ms` falls in.
+  function nextMidnight(ms) {
+    return localMidnight(localMidnight(ms) + MS_DAY + 2 * 3600000);
   }
 
   function dateKey(ms) {
-    const d = new Date(ms);
-    const p = (n) => String(n).padStart(2, '0');
-    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    const p = parts(ms);
+    const z = (n) => String(n).padStart(2, '0');
+    return p.y + '-' + z(p.mo) + '-' + z(p.d);
   }
 
   function hhmm(ms) {
-    const d = new Date(ms);
-    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    const p = parts(ms);
+    return String(p.h).padStart(2, '0') + ':' + String(p.mi).padStart(2, '0');
   }
 
   // The rest block that *starts* on the given day for this account: a stable
@@ -237,6 +287,7 @@
 
   root.DripPlanner = {
     TIERS, TIER_ORDER, REST_HOURS, SESSION_GAP_MIN, SESSION_SEP_MIN,
-    makeDayPlan, describePlan, restWindow, awakeIntervals, hashStr, dateKey, hhmm
+    makeDayPlan, describePlan, restWindow, awakeIntervals, hashStr, dateKey, hhmm,
+    setTimeZone, timeZone, localMidnight, nextMidnight
   };
 })(typeof self !== 'undefined' ? self : globalThis);

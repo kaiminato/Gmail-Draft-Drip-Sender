@@ -16,15 +16,19 @@ function fmtCountdown(ms) {
   return m + ':' + String(s).padStart(2, '0');
 }
 
+// Times follow the configured zone (state.timeZone), the one the day plan
+// runs on, so a machine elsewhere shows the plan's own clock.
+const tzOpts = () => ((typeof state !== 'undefined' && state && state.timeZone) ? { timeZone: state.timeZone } : {});
+const dayOf = (ts) => new Date(ts).toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', ...tzOpts() });
+
 function fmtTime(ts) {
-  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...tzOpts() });
 }
 
 // Same-day times need no date; anything further out does.
 function fmtWhen(ts) {
-  const d = new Date(ts);
-  if (d.toDateString() === new Date().toDateString()) return fmtTime(ts);
-  return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + fmtTime(ts);
+  if (dayOf(ts) === dayOf(Date.now())) return fmtTime(ts);
+  return new Date(ts).toLocaleDateString([], { weekday: 'short', ...tzOpts() }) + ' ' + fmtTime(ts);
 }
 
 const TIER_LABEL = { few: 'Few', less: 'Less', normal: 'Normal', many: 'Many' };

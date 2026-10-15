@@ -58,9 +58,25 @@ for (const deviceId of devices) {
   }
 }
 
-// Rest blocks differ between accounts.
-const rests = devices.map((id) => P.restWindow(id, day0).start);
-ok(new Set(rests.map((r) => Math.round(r / (30 * MS_MIN)))).size === devices.length, 'rest blocks should differ per account');
+// Rest blocks differ between accounts. The daily drift (up to 45 minutes
+// either way) can put two accounts in the same half hour on a given day, so
+// average it out over a month and compare each account's own base minute.
+{
+  const meanStart = (id) => {
+    let sum = 0;
+    for (let d = 0; d < 30; d++) {
+      const ds = day0 + d * MS_DAY;
+      sum += (P.restWindow(id, ds).start - ds) / MS_MIN;
+    }
+    return sum / 30;
+  };
+  const means = devices.map(meanStart);
+  for (let i = 0; i < means.length; i++) {
+    for (let j = i + 1; j < means.length; j++) {
+      ok(Math.abs(means[i] - means[j]) >= 5, 'rest base minutes too close: ' + means[i].toFixed(0) + ' vs ' + means[j].toFixed(0));
+    }
+  }
+}
 
 // The whole-day count is stable across re-plans on the same day.
 {
@@ -98,6 +114,38 @@ ok(new Set(rests.map((r) => Math.round(r / (30 * MS_MIN)))).size === devices.len
   const plan = P.makeDayPlan({ deviceId: devices[0], tier: 'many', fromMs: day0 + 1000, sentToday: 0, restHours: 16 });
   ok(plan.compressed, 'expected compression with 8 awake hours for up to 110 sends');
   ok(plan.times.length >= plan.dayTarget - 1, 'compressed plan still covers the target');
+}
+
+// Zone-pinned clock: midnight, date and hh:mm follow the configured zone,
+// across the year including DST changes, and a plan stays inside its day.
+{
+  const fmtOf = (tz) => new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+  });
+  const partsOf = (tz, ms) => { const o = {}; for (const p of fmtOf(tz).formatToParts(ms)) o[p.type] = p.value; return o; };
+  for (const tz of ['Asia/Tokyo', 'America/New_York', 'Europe/London']) {
+    ok(P.setTimeZone(tz) === tz, 'zone accepted ' + tz);
+    for (let i = 0; i < 365; i += 3) {
+      const ms = Date.UTC(2026, 0, 1, 15, 37) + i * MS_DAY;
+      const m = P.localMidnight(ms);
+      const p = partsOf(tz, m);
+      ok((+p.hour) % 24 === 0 && +p.minute === 0, tz + ' midnight is ' + p.hour + ':' + p.minute);
+      ok(p.year + '-' + p.month + '-' + p.day === P.dateKey(ms), tz + ' midnight falls on another day');
+      ok(m <= ms && ms - m < 25 * 3600000, tz + ' midnight not within the day');
+      const n = P.nextMidnight(ms);
+      ok(n > m && n - m >= 23 * 3600000 && n - m <= 25 * 3600000, tz + ' next midnight ' + ((n - m) / 3600000) + 'h away');
+      const q = partsOf(tz, ms);
+      ok(P.hhmm(ms) === String((+q.hour) % 24).padStart(2, '0') + ':' + q.minute, tz + ' hhmm ' + P.hhmm(ms) + ' vs ' + q.hour + ':' + q.minute);
+    }
+    const dayStart = P.localMidnight(Date.UTC(2026, 6, 10, 12));
+    const plan = P.makeDayPlan({ deviceId: devices[0], tier: 'normal', fromMs: dayStart + 1000, sentToday: 0 });
+    ok(plan.times.length > 0, tz + ' plan is empty');
+    ok(plan.times.every((t) => P.dateKey(t) === P.dateKey(dayStart)), tz + ' plan leaves its day');
+    ok(plan.times.every((t) => !inRest(t, devices[0], dayStart)), tz + ' plan sends during the rest');
+  }
+  ok(P.setTimeZone('Not/AZone') === null, 'an unknown zone falls back to the machine clock');
+  P.setTimeZone(null);
+  ok(P.timeZone() === null, 'zone cleared');
 }
 
 console.log(summary.join('\n'));

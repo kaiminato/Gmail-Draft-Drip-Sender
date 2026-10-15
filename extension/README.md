@@ -20,6 +20,11 @@ daily cap. The admin can also start and stop it from there.
    self.DRIP_CONFIG = { apiBase: 'https://my-dashboard.vercel.app', apiKey: '…' };
    ```
 
+   A key left out of `config.local.js` keeps the value from `config.js`. That includes
+   `timeZone`, the clock every account's day follows (`'Asia/Tokyo'` as shipped): when
+   "today" starts, when the nightly rest falls, when the new plan is made, and the times
+   the popup shows. Machines in different countries therefore roll over together.
+
    If the dashboard is on a custom domain rather than `*.vercel.app`, also add that
    origin to `host_permissions` in `manifest.json`.
 2. Open `chrome://extensions`
@@ -111,7 +116,14 @@ is not a person working through a list. So each day is planned to look like one
 - **A night's rest** of six hours, starting somewhere between 22:30 and 01:30. The start
   minute is fixed per account (derived from the install id) and drifts up to 45 minutes
   each day, so fifty accounts do not all go quiet at the same minute, and none of them
-  sends at 4am.
+  sends at 4am. Clock times, and "today" itself, follow the `timeZone` in `config.js`
+  rather than the machine's own clock.
+- **The target is a ceiling.** A "Send one now" or the immediate first send on Start
+  counts toward it: the plan drops a time from its end so sent plus planned never exceeds
+  the day's target.
+- **The new day starts at once.** Just after midnight on the configured clock the next
+  heartbeat makes the day's plan, so the dashboard shows the new target within a minute
+  rather than after the re-plan alarm.
 - **Two to six sessions** across the awake hours, each holding a share of the count,
   placed at random with at least 45 quiet minutes between them.
 - **Short gaps inside a session**, 4–12 minutes, drawn from a triangular spread. If the
@@ -363,7 +375,9 @@ extension reload is still the reliable move.
   "did not finish loading" every minute, and the drafts-left count reads 0. The badge is
   not trusted on a page open for less than 20 seconds (the counts arrive after the nav),
   a run stops on it only when two cycles in a row read it, and a 0 on a running account
-  is re-counted every few minutes until a send confirms it.
+  is re-counted every few minutes until a send confirms it. The folder is also re-counted
+  every ten minutes on a stopped account and every half hour on a running one, so the
+  dashboard's figure follows drafts you add without waiting for a send.
 - **An extension update or a browser restart does not end a run.** Chrome clears every
   alarm when an extension updates, which once left running accounts sitting idle with
   nothing armed and "next any moment" on the dashboard. The extension now re-plans and

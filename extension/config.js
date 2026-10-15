@@ -11,5 +11,10 @@ self.DRIP_CONFIG = {
   // Must equal EXTENSION_API_KEY on the dashboard.
   apiKey: 'REPLACE_ME',
   // How often to report in. Chrome allows no less than 0.5.
-  heartbeatMinutes: 0.5
+  heartbeatMinutes: 0.5,
+  // The clock every account's day follows: when "today" starts, when the
+  // nightly rest falls, when the new plan is made, what the popup shows. An
+  // IANA zone name. Empty means each machine's own clock. A config.local.js
+  // that leaves this out keeps this value.
+  timeZone: 'Asia/Tokyo'
 };

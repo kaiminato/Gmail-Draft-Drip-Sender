@@ -13,17 +13,22 @@
  */
 
 importScripts('config.js');
-// Per-machine override (gitignored). Missing is the normal case.
+const BASE_CONFIG = (typeof self !== 'undefined' && self.DRIP_CONFIG) || {};
+// Per-machine override (gitignored). Missing is the normal case; a key it
+// leaves out keeps the value from config.js.
 try { importScripts('config.local.js'); } catch (_) {}
 importScripts('planner.js');
 
 const CFG = Object.assign(
-  { apiBase: '', apiKey: '', heartbeatMinutes: 0.5 },
+  { apiBase: '', apiKey: '', heartbeatMinutes: 0.5, timeZone: '' },
+  BASE_CONFIG,
   (typeof self !== 'undefined' && self.DRIP_CONFIG) || {}
 );
 const SERVER_CONFIGURED = /^https?:\/\//.test(CFG.apiBase) && !!CFG.apiKey && CFG.apiKey !== 'REPLACE_ME';
 const Planner = self.DripPlanner;
 const TIERS = Planner.TIERS;
+// One clock for every machine, so their days roll over together.
+Planner.setTimeZone(CFG.timeZone);
 
 const ALARM = 'gmail-draft-drip';
 const HEARTBEAT_ALARM = 'drip-heartbeat';
@@ -198,15 +203,13 @@ function describeWhen(ts) {
     const s = total % 60;
     return 'in ' + (m <= 0 ? s + 's' : m + 'm ' + String(s).padStart(2, '0') + 's');
   }
+  const tz = Planner.timeZone() ? { timeZone: Planner.timeZone() } : {};
   const d = new Date(ts);
-  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const today = new Date();
-  const sameDay = d.toDateString() === today.toDateString();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  if (sameDay) return 'at ' + time;
-  if (d.toDateString() === tomorrow.toDateString()) return 'tomorrow at ' + time;
-  return d.toLocaleDateString([], { weekday: 'long' }) + ' at ' + time;
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', ...tz });
+  const day = Planner.dateKey(ts);
+  if (day === Planner.dateKey(Date.now())) return 'at ' + time;
+  if (day === Planner.dateKey(Planner.nextMidnight(Date.now()) + 60000)) return 'tomorrow at ' + time;
+  return d.toLocaleDateString([], { weekday: 'long', ...tz }) + ' at ' + time;
 }
 
 async function scheduleAt(when, note, kind) {
@@ -220,9 +223,8 @@ async function scheduleAt(when, note, kind) {
 const schedule = (delayMs, note, kind) => scheduleAt(Date.now() + delayMs, note, kind);
 
 function msUntilTomorrow() {
-  const d = new Date();
-  d.setHours(24, 2, 0, 0); // just past local midnight
-  return Math.max(60000, d.getTime() - Date.now());
+  // Just past midnight on the configured clock.
+  return Math.max(60000, Planner.nextMidnight(Date.now()) + 2 * 60000 - Date.now());
 }
 
 // Arms the alarm for the next planned time, dropping any that already passed
@@ -230,8 +232,13 @@ function msUntilTomorrow() {
 // nothing left for today the run holds until a new plan after midnight.
 async function scheduleNextPlanned(note) {
   const plan = await ensurePlan(false);
+  const st = await rollDailyCounter(await getState());
   const now = Date.now();
   const left = plan.times.filter((t) => t > now);
+  // A send outside the plan (Send one now, the immediate first send) counts
+  // toward the day: drop planned times from the end so sent plus planned
+  // never exceeds the target.
+  while (left.length && st.sentToday + left.length > plan.dayTarget) left.pop();
   if (left.length !== plan.times.length) await setState({ dayPlan: { ...plan, times: left } });
   if (left.length) {
     await setState({ stopReason: '' });
@@ -433,23 +440,26 @@ function refreshAccountEmail() {
 /* ---------- drafts-left count ---------- */
 
 const COUNT_RETRY_MS = 5 * 60000;
+const COUNT_EVERY_STOPPED_MS = 10 * 60000;
+const COUNT_EVERY_RUNNING_MS = 30 * 60000;
 
-// Fills in the exact drafts-left figure when there is none: a fresh install,
-// or an update from a build that only reported a range. A send cycle keeps
-// the figure current afterwards, so this runs rarely, never during a cycle,
-// and at most once every few minutes when the page will not answer. It reads
-// an already-loaded Gmail tab and puts its view back; it never opens a tab or
+// Keeps the drafts-left figure current without a send: soon when there is
+// none (a fresh install, an update from a build that only reported a range)
+// or a 0 sits on a running account, every ten minutes on a stopped account
+// (drafts get added to those), every half hour on a running one (its sends
+// keep the figure fresh in between). Never during a cycle. It reads an
+// already-loaded Gmail tab and puts its view back; it never opens a tab or
 // brings one forward.
 let draftCountInFlight = null;
 function refreshDraftCount() {
   if (draftCountInFlight) return draftCountInFlight;
   draftCountInFlight = (async () => {
     const st = await getState();
-    // Unknown, or 0 on a run that is still going: a 0 read off a page that
-    // was still loading must correct itself without waiting for a send.
-    if (typeof st.remainingCount === 'number' && !(st.remainingCount === 0 && st.running)) return;
     if (busy || (st.cycleStartedAt > 0 && Date.now() - st.cycleStartedAt < CYCLE_STALE_MS)) return;
-    if (Date.now() - (st.draftCountAt || 0) < COUNT_RETRY_MS) return;
+    const known = typeof st.remainingCount === 'number';
+    const every = !known || (st.running && st.remainingCount === 0) ? COUNT_RETRY_MS
+      : st.running ? COUNT_EVERY_RUNNING_MS : COUNT_EVERY_STOPPED_MS;
+    if (Date.now() - (st.draftCountAt || 0) < every) return;
     const tab = await findGmailTab();
     if (!tab || tab.discarded || tab.status !== 'complete') return;
     await setState({ draftCountAt: Date.now() });
@@ -702,9 +712,20 @@ async function resumeIfNeeded(note) {
   const st = await getState();
   if (!st.running || busy) return false;
   const existing = await chrome.alarms.get(ALARM);
-  if (existing) return false;
-  await scheduleNextPlanned(note);
-  return true;
+  if (!existing) {
+    await scheduleNextPlanned(note);
+    return true;
+  }
+  // A new day while still holding on yesterday's "done for today": make the
+  // plan now rather than waiting for the after-midnight alarm, so the
+  // dashboard shows the day's target within a heartbeat of midnight.
+  if (st.alarmKind === 'replan' && st.dayPlan && st.dayPlan.date !== todayKey()) {
+    await rollDailyCounter(st);
+    await ensurePlan(true);
+    await scheduleNextPlanned('New day.');
+    return true;
+  }
+  return false;
 }
 
 /* ---------- dashboard: heartbeat and commands ---------- */
@@ -949,7 +970,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           busy: busy || (st.cycleStartedAt > 0 && Date.now() - st.cycleStartedAt < CYCLE_STALE_MS),
           version: getVersion(),
           serverConfigured: SERVER_CONFIGURED,
-          apiHost
+          apiHost,
+          timeZone: Planner.timeZone() || ''
         };
       })());
       return true;
