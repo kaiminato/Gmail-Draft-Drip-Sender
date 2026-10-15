@@ -54,8 +54,8 @@ day around it:
 | --- | --- |
 | **Few** | 10–20 |
 | **Less** | 20–40 |
-| **Normal** | 40–60 |
-| **Many** | 60–80 |
+| **Normal** | 40–70 |
+| **Many** | 70–110 |
 
 The four tier buttons in the popup start the run on that tier; while running, pressing
 another tier switches to it without stopping. The dashboard has the same four buttons
@@ -240,11 +240,32 @@ Those fixes make a throttled tab *correct*, but not fast: the cosmetic dwell bet
 is still made of timers, so a cycle in a long-hidden tab can take several minutes of
 wall clock even when everything works.
 
-That is why the extension now always brings Gmail to the front for each send (focusing
-its window, un-minimising it if needed, and activating the tab). Making the tab active
-lifts throttling entirely and is the only thing that removes this whole class of problem
-rather than working around it. The cost is that it pulls you to Gmail for a few seconds
-per send — keeping Gmail in its own window makes that painless.
+That is why the extension makes the Gmail tab active for each send and, only if the page
+still reports itself hidden after that, brings its window to the front (un-minimising it
+if needed). An active tab in a visible window is not throttled, which removes this whole
+class of problem rather than working around it. A Gmail window that is already on screen
+is never touched, so keeping Gmail in its own window makes sending invisible.
+
+### Profiles on other virtual desktops
+
+Chrome treats a window on another virtual desktop as hidden. Left alone, a profile parked
+on desktop 3 is therefore pulled onto whichever desktop you are working on for every send,
+and its taskbar button flashes. To keep those windows where they are, start Chrome for
+those profiles with occlusion tracking off:
+
+```
+chrome.exe --profile-directory="Profile 3" --disable-backgrounding-occluded-windows --disable-features=CalculateNativeWinOcclusion
+```
+
+With those switches a window on another desktop, or behind other windows, still counts
+as visible: the page reports itself visible, and the extension never focuses the window.
+Two things to know:
+
+- The switches only take effect when Chrome starts fresh for that profile. Close every
+  window of the profile first, then launch it through a shortcut carrying them. The
+  profile directory name is shown on `chrome://version` as "Profile Path".
+- A minimised window is hidden whatever the switches, so leave those windows restored
+  (behind other windows is fine).
 
 ## Diagnosing a failure
 

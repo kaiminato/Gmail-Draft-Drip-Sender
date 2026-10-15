@@ -26,7 +26,7 @@ What it shows and does:
   (running / stopped / empty / blocked / offline), exact drafts left (rows with fewer
   than 5 are tinted, zero is red), last send, totals, extension version. Tick rows and
   use the floating bar to start them on a tier (**few** 10–20, **less** 20–40, **normal**
-  40–60, **many** 60–80 a day) or stop them; with nothing ticked the same buttons act on
+  40–70, **many** 70–110 a day) or stop them; with nothing ticked the same buttons act on
   the whole filtered list. Each row also has its own Start ▾ / Switch ▾ and Stop.
 - **Managers** — labels you create and assign accounts to. Managers do not log in.
 - **Stats** — sends today / this week / this month / all time, blocks, bounces and failed

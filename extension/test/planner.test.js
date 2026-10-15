@@ -49,7 +49,10 @@ for (const deviceId of devices) {
         }
       }
       if (plan.sessions > 1) ok(longGaps >= 1, 'no long gap between sessions');
-      if (tier === 'many') ok(!plan.compressed, 'many should fit without compression at 6h rest');
+      // The top of "many" needs a little compression in an 18-hour day; it
+      // must never get anywhere near the floor.
+      if (tier === 'many') ok(plan.gapRange[0] >= 3, `many gaps compressed to ${plan.gapRange[0]}m at 6h rest`);
+      else ok(!plan.compressed, `${tier} should fit without compression at 6h rest`);
       if (d === 0) summary.push(`${deviceId.slice(0, 8)} ${tier.padEnd(6)} ${P.describePlan(plan, 0)}`);
     }
   }
@@ -93,7 +96,7 @@ ok(new Set(rests.map((r) => Math.round(r / (30 * MS_MIN)))).size === devices.len
 // Compression kicks in when the awake time is short.
 {
   const plan = P.makeDayPlan({ deviceId: devices[0], tier: 'many', fromMs: day0 + 1000, sentToday: 0, restHours: 16 });
-  ok(plan.compressed, 'expected compression with 8 awake hours for up to 80 sends');
+  ok(plan.compressed, 'expected compression with 8 awake hours for up to 110 sends');
   ok(plan.times.length >= plan.dayTarget - 1, 'compressed plan still covers the target');
 }
 

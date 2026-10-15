@@ -2,8 +2,8 @@
 export const TIERS = {
   few: [10, 20],
   less: [20, 40],
-  normal: [40, 60],
-  many: [60, 80],
+  normal: [40, 70],
+  many: [70, 110],
 } as const;
 
 export type Tier = keyof typeof TIERS;
@@ -28,13 +28,13 @@ export const TIER_META: Record<Tier, { label: string; range: string; badge: stri
   },
   normal: {
     label: "Normal",
-    range: "40–60 / day",
+    range: "40–70 / day",
     badge: "bg-emerald-500/15 text-emerald-700 ring-1 ring-inset ring-emerald-500/30 dark:text-emerald-300",
     bar: "border-l-emerald-400",
   },
   many: {
     label: "Many",
-    range: "60–80 / day",
+    range: "70–110 / day",
     badge: "bg-violet-500/15 text-violet-700 ring-1 ring-inset ring-violet-500/30 dark:text-violet-300",
     bar: "border-l-violet-400",
   },

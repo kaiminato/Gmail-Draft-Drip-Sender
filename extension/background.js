@@ -316,10 +316,28 @@ async function waitForGmailReady(tabId, timeout = 30000) {
   return false;
 }
 
-// Sending drives the real UI, so Gmail has to be the page on screen: Chrome
-// throttles hidden tabs to a timer tick a minute, and a minimised window is
-// hidden too.
+// Sending drives the real UI, so the Gmail page must not be throttled the way
+// Chrome throttles hidden tabs. Making the tab active in its own window is
+// usually enough. The window itself is focused only when the page still
+// reports itself hidden after that: minimised, or on another virtual desktop
+// without the Chrome flag described in the README. So a profile parked on
+// another desktop is left there instead of jumping onto the one in use.
+async function pageVisible(tabId) {
+  try {
+    const [r] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => document.visibilityState === 'visible'
+    });
+    return !!(r && r.result);
+  } catch (_) {
+    return false;
+  }
+}
+
 async function bringToFront(tab) {
+  try { await chrome.tabs.update(tab.id, { active: true }); } catch (_) {}
+  await sleep(400);
+  if (await pageVisible(tab.id)) return;
   try {
     const win = await chrome.windows.get(tab.windowId);
     if (win.state === 'minimized') await chrome.windows.update(win.id, { state: 'normal' });
@@ -345,7 +363,9 @@ async function acquireGmailTab() {
     try { await chrome.tabs.reload(tab.id); } catch (_) {}
   }
 
-  await bringToFront(tab);
+  // Activate the tab so it loads at full speed; the window is dealt with once
+  // the page is there and can say whether it is visible.
+  try { await chrome.tabs.update(tab.id, { active: true }); } catch (_) {}
 
   const ready = await waitForTabComplete(tab.id, created ? 60000 : 45000);
   if (!ready) return { error: 'TAB_NOT_READY', message: 'Gmail tab is still loading.' };
@@ -364,6 +384,7 @@ async function acquireGmailTab() {
     };
   }
 
+  await bringToFront(fresh);
   const uiReady = await waitForGmailReady(fresh.id, created ? 45000 : 30000);
   if (!uiReady) return { error: 'TAB_NOT_READY', message: 'Gmail did not finish loading its UI.' };
   return { tab: fresh };

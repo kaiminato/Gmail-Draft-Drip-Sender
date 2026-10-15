@@ -13,7 +13,7 @@
 (function (root) {
   'use strict';
 
-  const TIERS = { few: [10, 20], less: [20, 40], normal: [40, 60], many: [60, 80] };
+  const TIERS = { few: [10, 20], less: [20, 40], normal: [40, 70], many: [70, 110] };
   const TIER_ORDER = ['few', 'less', 'normal', 'many'];
   const REST_HOURS = 6;              // nightly block
   const REST_DRIFT_MIN = 45;         // +/- daily drift of the block
