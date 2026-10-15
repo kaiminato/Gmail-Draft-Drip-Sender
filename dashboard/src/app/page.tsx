@@ -166,7 +166,13 @@ export default async function AccountsPage({
                 </td>
                 <td
                   className={cell + " num text-right " + (drafts === "zero" ? "font-semibold text-danger" : drafts === "low" ? "font-semibold text-warn" : "")}
-                  title={drafts === "unknown" ? "Not counted yet; updates after the first send" : "As of the last send"}
+                  title={
+                    typeof a.remainingCount === "number"
+                      ? "Exact, as of the extension's last look at the Drafts folder"
+                      : drafts === "unknown"
+                        ? "Not counted yet; the extension reports it once it has read the Drafts folder"
+                        : "Approximate; the exact count follows once the extension has read the Drafts folder"
+                  }
                 >
                   {typeof a.remainingCount === "number" ? a.remainingCount : (BUCKET_LABEL[a.remainingBucket] ?? "—")}
                 </td>

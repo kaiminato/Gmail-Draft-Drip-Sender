@@ -2,7 +2,11 @@
 
 import { useRouter } from "next/navigation";
 
-// Changing the dropdown navigates straight to the filtered list.
+const DIM = { color: "var(--muted)" };
+const PLAIN = { color: "var(--fg)" };
+
+// Changing the dropdown navigates straight to the filtered list. The two
+// entries that are not managers are dimmed, both in the list and when chosen.
 export function ManagerFilter({
   value,
   managers,
@@ -13,19 +17,21 @@ export function ManagerFilter({
   className?: string;
 }) {
   const router = useRouter();
+  const special = value === "" || value === "none";
   return (
     <select
       value={value}
       className={className}
+      style={special ? DIM : undefined}
       onChange={(e) => {
         const v = e.currentTarget.value;
         router.push(v ? "/?manager=" + encodeURIComponent(v) : "/");
       }}
     >
-      <option value="">All managers</option>
-      <option value="none">Unassigned</option>
+      <option value="" style={DIM}>All managers</option>
+      <option value="none" style={DIM}>Unassigned</option>
       {managers.map((m) => (
-        <option key={m.id} value={m.id}>
+        <option key={m.id} value={m.id} style={PLAIN}>
           {m.name}
         </option>
       ))}

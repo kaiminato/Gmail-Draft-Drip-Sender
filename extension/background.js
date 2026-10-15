@@ -69,6 +69,7 @@ const DEFAULTS = {
   lastSendAt: 0,
   remainingBucket: 'unknown', // unknown | none | 1-10 | 10+
   remainingCount: null,       // exact drafts left after the last cycle
+  draftCountAt: 0,            // last time the Drafts folder was counted outside a cycle
   eventQueue: [],
   pendingAcks: [],
   executedCommandIds: [],
@@ -402,6 +403,40 @@ function refreshAccountEmail() {
   return emailRefreshInFlight;
 }
 
+/* ---------- drafts-left count ---------- */
+
+const COUNT_RETRY_MS = 5 * 60000;
+
+// Fills in the exact drafts-left figure when there is none: a fresh install,
+// or an update from a build that only reported a range. A send cycle keeps
+// the figure current afterwards, so this runs rarely, never during a cycle,
+// and at most once every few minutes when the page will not answer. It reads
+// an already-loaded Gmail tab and puts its view back; it never opens a tab or
+// brings one forward.
+let draftCountInFlight = null;
+function refreshDraftCount() {
+  if (draftCountInFlight) return draftCountInFlight;
+  draftCountInFlight = (async () => {
+    const st = await getState();
+    if (typeof st.remainingCount === 'number') return;
+    if (busy || (st.cycleStartedAt > 0 && Date.now() - st.cycleStartedAt < CYCLE_STALE_MS)) return;
+    if (Date.now() - (st.draftCountAt || 0) < COUNT_RETRY_MS) return;
+    const tab = await findGmailTab();
+    if (!tab || tab.discarded || tab.status !== 'complete') return;
+    await setState({ draftCountAt: Date.now() });
+    if (!(await ensureContentScript(tab.id))) return;
+    let r = null;
+    try {
+      r = await chrome.tabs.sendMessage(tab.id, { type: 'COUNT_DRAFTS', restoreView: st.restoreView });
+    } catch (_) {}
+    if (!r || !r.ok || typeof r.count !== 'number') return;
+    await setState({ remainingCount: r.count, remainingBucket: bucketOf(r.count) });
+    await log('info', 'Drafts left: ' + r.count + '.');
+    scheduleHeartbeatSoon();
+  })().catch(() => {}).finally(() => { draftCountInFlight = null; });
+  return draftCountInFlight;
+}
+
 // A fresh install or reload does not reach tabs that were already open, and
 // an old copy of the script answers PING but knows nothing new. Inject into
 // every open Gmail tab so the extension is live at once.
@@ -421,6 +456,8 @@ async function runCycle(manual) {
   if (busy) return { ok: false, code: 'BUSY', message: 'A send is already in progress.' };
   busy = true;
   await setState({ cycleStartedAt: Date.now() });
+  // A count in progress is reading the same tab; let it finish first.
+  if (draftCountInFlight) { try { await draftCountInFlight; } catch (_) {} }
   // A cycle can run for minutes; keep the worker from being torn down mid-send.
   const keepAlive = setInterval(() => { try { chrome.runtime.getPlatformInfo(() => {}); } catch (_) {} }, 20000);
   // Early exits log too, so the popup always explains why nothing was sent.
@@ -705,6 +742,9 @@ function sendHeartbeat(trigger) {
   heartbeatInFlight = (async () => {
     // Fill in the address before reporting, if a loaded Gmail tab can tell us.
     try { await refreshAccountEmail(); } catch (_) {}
+    // Likewise the drafts-left figure while there is none. Not awaited: it
+    // can take a while, and it beats again on its own once it has a number.
+    refreshDraftCount();
     const body = await collectHeartbeat(trigger);
     await setState({ serverLastTryAt: Date.now() });
     const ctl = new AbortController();
@@ -850,6 +890,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const st = await rollDailyCounter(await getState());
         // Opening the popup is a good moment to fill in a missing address.
         if (!st.accountEmail) refreshAccountEmail();
+        if (typeof st.remainingCount !== 'number') refreshDraftCount();
         const tabs = await chrome.tabs.query({ url: '*://mail.google.com/*' });
         let apiHost = '';
         try { apiHost = new URL(CFG.apiBase).host; } catch (_) {}
