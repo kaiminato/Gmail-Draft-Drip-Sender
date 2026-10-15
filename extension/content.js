@@ -223,7 +223,11 @@
   // locale, where the list's own wording cannot be relied on. Returns the
   // number, 0 for no badge, or null when the nav item cannot be read (nav
   // collapsed to icons, markup changed), in which case nothing is concluded.
+  const NAV_TRUST_AFTER_MS = 20000;
   function draftsNavCount() {
+    // A freshly loaded page shows its nav before the counts arrive, so an
+    // empty badge means nothing until the page has been up for a while.
+    if (performance.now() < NAV_TRUST_AFTER_MS) return null;
     const nav = document.querySelector('div[role="navigation"]');
     if (!nav) return null;
     const link = nav.querySelector('a[href*="#drafts"]');
@@ -616,10 +620,18 @@
       }
 
       const all = listRows();
-      if (!all.length && !draftsSettled && draftsNavCount() !== 0) {
-        // "Empty" stops the run for good, so never conclude it from a view
-        // that never confirmed it had finished loading, unless the nav's
-        // draft count says outright that there are none.
+      if (all.length || draftsSettled) {
+        emptyByNavStreak = 0;
+      } else if (draftsNavCount() === 0) {
+        // "Empty" stops the run for good. The list never confirmed it, so
+        // the nav's "no drafts" has to be seen on two cycles in a row before
+        // it counts; one sighting is retried like any slow load.
+        emptyByNavStreak++;
+        if (emptyByNavStreak < 2) {
+          return { ok: false, code: 'DRAFTS_TIMEOUT', message: 'Drafts list did not finish loading (nav shows no drafts; confirming).' };
+        }
+      } else {
+        emptyByNavStreak = 0;
         return { ok: false, code: 'DRAFTS_TIMEOUT', message: 'Drafts list did not finish loading.' };
       }
       if (!all.length) return { ok: false, code: 'NO_DRAFTS', message: 'Drafts folder is empty.', remaining: 0 };
@@ -785,6 +797,8 @@
       }
     }
   }
+
+  let emptyByNavStreak = 0;
 
   async function countDrafts(opts) {
     const originalHash = location.hash;

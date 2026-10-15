@@ -360,7 +360,10 @@ extension reload is still the reliable move.
   "Drafts" while any exist and nothing when there are none, in every locale. The list's
   own "you don't have any saved drafts" wording is used too, but the badge is what makes
   the empty folder certain, so the run stops with "Empty" instead of retrying a list that
-  "did not finish loading" every minute, and the drafts-left count reads 0.
+  "did not finish loading" every minute, and the drafts-left count reads 0. The badge is
+  not trusted on a page open for less than 20 seconds (the counts arrive after the nav),
+  a run stops on it only when two cycles in a row read it, and a 0 on a running account
+  is re-counted every few minutes until a send confirms it.
 - **An extension update or a browser restart does not end a run.** Chrome clears every
   alarm when an extension updates, which once left running accounts sitting idle with
   nothing armed and "next any moment" on the dashboard. The extension now re-plans and

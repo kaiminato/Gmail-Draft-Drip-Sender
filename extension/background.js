@@ -445,7 +445,9 @@ function refreshDraftCount() {
   if (draftCountInFlight) return draftCountInFlight;
   draftCountInFlight = (async () => {
     const st = await getState();
-    if (typeof st.remainingCount === 'number') return;
+    // Unknown, or 0 on a run that is still going: a 0 read off a page that
+    // was still loading must correct itself without waiting for a send.
+    if (typeof st.remainingCount === 'number' && !(st.remainingCount === 0 && st.running)) return;
     if (busy || (st.cycleStartedAt > 0 && Date.now() - st.cycleStartedAt < CYCLE_STALE_MS)) return;
     if (Date.now() - (st.draftCountAt || 0) < COUNT_RETRY_MS) return;
     const tab = await findGmailTab();
@@ -457,6 +459,7 @@ function refreshDraftCount() {
       r = await chrome.tabs.sendMessage(tab.id, { type: 'COUNT_DRAFTS', restoreView: st.restoreView });
     } catch (_) {}
     if (!r || !r.ok || typeof r.count !== 'number') return;
+    if (r.count === st.remainingCount) return;
     await setState({ remainingCount: r.count, remainingBucket: bucketOf(r.count) });
     await log('info', 'Drafts left: ' + r.count + '.');
     scheduleHeartbeatSoon();
