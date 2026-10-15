@@ -35,6 +35,18 @@ for (const deviceId of devices) {
       ok(plan.times.length >= plan.dayTarget - 1 && plan.times.length <= plan.dayTarget,
         `${tier} planned ${plan.times.length} of ${plan.dayTarget}`);
       ok(plan.sessions >= 1 && plan.sessions <= 6, `sessions ${plan.sessions}`);
+      // The first send comes within 150 minutes of awake time from the start.
+      if (plan.times.length) {
+        const ivs = P.awakeIntervals(deviceId, dayStart + 1000, dayStart);
+        let off = 0;
+        for (const [a, b] of ivs) {
+          if (plan.times[0] < a) break;
+          if (plan.times[0] >= b) { off += b - a; continue; }
+          off += plan.times[0] - a;
+          break;
+        }
+        ok(off <= 151 * MS_MIN, `first send ${Math.round(off / MS_MIN)}m of awake time after the start`);
+      }
       const minGap = plan.gapRange[0] * MS_MIN - 1;
       let longGaps = 0;
       for (let i = 0; i < plan.times.length; i++) {
@@ -76,6 +88,19 @@ for (const deviceId of devices) {
       ok(Math.abs(means[i] - means[j]) >= 5, 'rest base minutes too close: ' + means[i].toFixed(0) + ' vs ' + means[j].toFixed(0));
     }
   }
+}
+
+// Rest blocks are spread around the clock and vary in length per account.
+{
+  const ids = Array.from({ length: 60 }, (_, i) => 'spread-' + i + '-' + (i * 7919).toString(36));
+  const buckets = new Set();
+  for (const id of ids) {
+    const r = P.restWindow(id, day0);
+    const hours = (r.end - r.start) / 3600000;
+    ok(hours >= P.REST_HOURS_MIN - 1e-9 && hours <= P.REST_HOURS_MAX + 1e-9, 'rest length ' + hours.toFixed(2) + 'h outside the range');
+    buckets.add(Math.floor((((r.start - day0) / MS_MIN) % 1440 + 1440) % 1440 / 180));
+  }
+  ok(buckets.size >= 6, 'rest starts cover only ' + buckets.size + ' of 8 three-hour bands');
 }
 
 // The whole-day count is stable across re-plans on the same day.

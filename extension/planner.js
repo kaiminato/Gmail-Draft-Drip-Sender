@@ -15,7 +15,9 @@
 
   const TIERS = { few: [10, 20], less: [20, 40], normal: [40, 70], many: [70, 110] };
   const TIER_ORDER = ['few', 'less', 'normal', 'many'];
-  const REST_HOURS = 6;              // nightly block
+  const REST_HOURS = 6;              // rest block, the middle of the per-account range
+  const REST_HOURS_MIN = 5.5;        // per-account length, fixed for the account
+  const REST_HOURS_MAX = 7.5;
   const REST_DRIFT_MIN = 45;         // +/- daily drift of the block
   const SESSION_GAP_MIN = [4, 12];   // minutes between sends inside a session
   const MIN_GAP_FLOOR = [1.5, 3];    // never compress below this
@@ -110,16 +112,20 @@
     return String(p.h).padStart(2, '0') + ':' + String(p.mi).padStart(2, '0');
   }
 
-  // The rest block that *starts* on the given day for this account: a stable
-  // base minute per account somewhere in the late evening (22:30-01:30, so
-  // every account sleeps at night but not at the same minute), drifted a
-  // little per day.
-  const REST_EARLIEST_MIN = 22 * 60 + 30;
-  const REST_BAND_MIN = 180;
+  // The rest block that *starts* on the given day for this account. The
+  // accounts belong to people all over the world, so the block can begin at
+  // any minute of the 24 hours and lasts between five and a half and seven
+  // and a half hours; both are fixed per account (derived from the install
+  // id), and the start drifts a little per day.
+  const REST_BAND_MIN = 24 * 60;
+  function restHoursFor(deviceId) {
+    const u = (hashStr(String(deviceId || 'x') + '|rest-length') % 1000) / 1000;
+    return REST_HOURS_MIN + u * (REST_HOURS_MAX - REST_HOURS_MIN);
+  }
   function restWindow(deviceId, dayStartMs, restHours) {
-    const hours = typeof restHours === 'number' ? restHours : REST_HOURS;
+    const hours = typeof restHours === 'number' ? restHours : restHoursFor(deviceId);
     if (hours <= 0) return null;
-    const base = REST_EARLIEST_MIN + (hashStr(String(deviceId || 'x')) % REST_BAND_MIN);
+    const base = hashStr(String(deviceId || 'x')) % REST_BAND_MIN;
     const drift = (seeded01(String(deviceId) + '|' + dateKey(dayStartMs)) * 2 - 1) * REST_DRIFT_MIN;
     const start = dayStartMs + (base + drift) * MS_MIN;
     return { start, end: start + hours * 3600000 };
@@ -196,7 +202,7 @@
     const fromMs = opts.fromMs || Date.now();
     const dayStart = localMidnight(fromMs);
     const sentToday = Math.max(0, opts.sentToday || 0);
-    const restHours = typeof opts.restHours === 'number' ? opts.restHours : REST_HOURS;
+    const restHours = typeof opts.restHours === 'number' ? opts.restHours : null;
 
     const fullDay = awakeIntervals(opts.deviceId, dayStart, dayStart, restHours);
     const rest = awakeIntervals(opts.deviceId, fromMs, dayStart, restHours);
@@ -258,6 +264,15 @@
     const w = Array.from({ length: k + 1 }, (_, i) => (i === 0 ? 0.35 : 1) * (0.3 + Math.random()));
     const wsum = w.reduce((a, b) => a + b, 0);
     const pieces = w.map((x) => slack * x / wsum);
+    // The first session starts soon after the day, or the rest, begins: a
+    // person gets to their mail within an hour or two of waking. Whatever
+    // that frees goes to the gaps between and after the sessions.
+    const firstMax = rand(30, 150) * MS_MIN;
+    if (pieces[0] > firstMax) {
+      const extra = pieces[0] - firstMax;
+      pieces[0] = firstMax;
+      for (let i = 1; i < pieces.length; i++) pieces[i] += extra / (pieces.length - 1);
+    }
 
     const times = [];
     let off = pieces[0];
@@ -286,7 +301,7 @@
   }
 
   root.DripPlanner = {
-    TIERS, TIER_ORDER, REST_HOURS, SESSION_GAP_MIN, SESSION_SEP_MIN,
+    TIERS, TIER_ORDER, REST_HOURS, REST_HOURS_MIN, REST_HOURS_MAX, SESSION_GAP_MIN, SESSION_SEP_MIN,
     makeDayPlan, describePlan, restWindow, awakeIntervals, hashStr, dateKey, hhmm,
     setTimeZone, timeZone, localMidnight, nextMidnight
   };

@@ -114,11 +114,15 @@ is not a person working through a list. So each day is planned to look like one
 
 - **A daily count** drawn from the tier's range. It is fixed for the day, so a restart
   mid-day only plans what is still owed.
-- **A night's rest** of six hours, starting somewhere between 22:30 and 01:30. The start
-  minute is fixed per account (derived from the install id) and drifts up to 45 minutes
-  each day, so fifty accounts do not all go quiet at the same minute, and none of them
-  sends at 4am. Clock times, and "today" itself, follow the `timeZone` in `config.js`
-  rather than the machine's own clock.
+- **A rest block** of five and a half to seven and a half hours, placed anywhere in the 24
+  hours. Its start minute and its length are fixed per account (derived from the install
+  id) and the start drifts up to 45 minutes each day, so the accounts look like people in
+  different parts of the world rather than one office that sleeps together. Clock times,
+  and "today" itself, follow the `timeZone` in `config.js` rather than the machine's own
+  clock.
+- **The first session comes early.** The first send of a day, or after a rest, falls
+  within 30 to 150 minutes of waking; the day's spare hours go to the gaps between and
+  after the sessions, not before the first one.
 - **The target is a ceiling.** A "Send one now" or the immediate first send on Start
   counts toward it: the plan drops a time from its end so sent plus planned never exceeds
   the day's target.
