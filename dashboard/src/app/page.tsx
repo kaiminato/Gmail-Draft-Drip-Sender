@@ -4,7 +4,7 @@ import { db, schema } from "@/db";
 import type { Account } from "@/db/schema";
 import { requireAdmin } from "@/lib/admin";
 import { statusOf, draftsLevel, BUCKET_LABEL, LOW_DRAFTS, type Status } from "@/lib/status";
-import { ago, cmpVersion, fmtDateTime, inFuture, nowMs, stopReasonLabel } from "@/lib/format";
+import { ago, cmpVersion, fmtDateTime, inFuture, nowMs, overdue, stopReasonLabel } from "@/lib/format";
 import { dashboardTz } from "@/lib/stats";
 import { TIER_META, TIER_ORDER, isTier } from "@/lib/tiers";
 import { AutoRefresh } from "@/components/AutoRefresh";
@@ -227,13 +227,21 @@ export default async function AccountsPage({
                   {a.running && a.plannedLeft != null && a.plannedLeft > 0 && (
                     <div className="text-xs text-muted">{a.plannedLeft} to go</div>
                   )}
+                  {a.running && !a.dayTarget && status === "running" && (
+                    <div className="text-xs text-warn" title="Running, but the extension has not reported a plan for today">no plan yet</div>
+                  )}
                 </td>
                 <td className={cell}>
                   <StatusPill status={status} title={stopReasonLabel(a.stopReason)} />
                   <div className="text-xs text-muted">
                     {status === "running" && a.busy && "sending now"}
                     {status === "running" && !a.busy && a.stopReason === "daily_cap" && "done for today"}
-                    {status === "running" && !a.busy && a.stopReason !== "daily_cap" && a.nextSendAt && "next " + inFuture(a.nextSendAt, now)}
+                    {status === "running" && !a.busy && a.stopReason !== "daily_cap" && a.nextSendAt && !overdue(a.nextSendAt, now) && "next " + inFuture(a.nextSendAt, now)}
+                    {status === "running" && !a.busy && a.stopReason !== "daily_cap" && a.nextSendAt && overdue(a.nextSendAt, now) && (
+                      <span className="text-warn" title="The planned time passed and nothing was sent; the extension re-arms itself on its next heartbeat">
+                        {"send overdue by " + ago(a.nextSendAt, now).replace(" ago", "")}
+                      </span>
+                    )}
                     {status === "running" && a.restStart && " · rest " + a.restStart + "–" + a.restEnd}
                     {status !== "running" && status !== "offline" && stopReasonLabel(a.stopReason)}
                     {status === "offline" && "last seen " + ago(a.lastSeenAt, now)}

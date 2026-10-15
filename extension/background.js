@@ -684,6 +684,20 @@ async function setTier(tier, source) {
   return getState();
 }
 
+// A running account whose send alarm is gone (an extension update clears
+// every alarm, and Chrome can drop one) would otherwise sit "running" and
+// never send again. Re-arm it from the plan; a missing or stale plan is
+// made on the way. Safe to call often: it does nothing while the alarm is
+// there or a cycle is on.
+async function resumeIfNeeded(note) {
+  const st = await getState();
+  if (!st.running || busy) return false;
+  const existing = await chrome.alarms.get(ALARM);
+  if (existing) return false;
+  await scheduleNextPlanned(note);
+  return true;
+}
+
 /* ---------- dashboard: heartbeat and commands ---------- */
 
 async function getDeviceId() {
@@ -855,6 +869,8 @@ async function executeCommand(cmd) {
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === HEARTBEAT_ALARM) {
+    // Watchdog: a running account must always have its next send armed.
+    resumeIfNeeded('Send schedule was missing; resumed.').catch(() => {});
     sendHeartbeat('alarm').catch(() => {});
     return;
   }
@@ -875,9 +891,7 @@ chrome.runtime.onStartup.addListener(async () => {
   const st = await getState();
   await setBadge(st.running);
   await ensureHeartbeatAlarm();
-  if (!st.running) return;
-  const existing = await chrome.alarms.get(ALARM);
-  if (!existing) await scheduleNextPlanned('Browser restarted.');
+  await resumeIfNeeded('Browser restarted.');
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -887,6 +901,8 @@ chrome.runtime.onInstalled.addListener(async () => {
   await setBadge(st.running);
   await ensureHeartbeatAlarm();
   await injectIntoOpenGmailTabs();
+  // An update clears the alarms; a running account carries on from here.
+  await resumeIfNeeded('Extension updated to v' + getVersion() + '; carrying on.');
   sendHeartbeat('boot').catch(() => {});
 });
 

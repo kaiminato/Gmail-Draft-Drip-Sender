@@ -4,7 +4,7 @@ import { asc, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireAdmin } from "@/lib/admin";
 import { statusOf, draftsLevel, BUCKET_LABEL } from "@/lib/status";
-import { ago, fmtDateTime, inFuture, nowMs, stopReasonLabel } from "@/lib/format";
+import { ago, fmtDateTime, inFuture, nowMs, overdue, stopReasonLabel } from "@/lib/format";
 import { dashboardTz } from "@/lib/stats";
 import { TIER_META, TIER_ORDER } from "@/lib/tiers";
 import { AutoRefresh } from "@/components/AutoRefresh";
@@ -77,8 +77,9 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
         <Stat label="Bounced / blocks" value={<span>{a.bounceCount} <span className="text-muted">/</span> <span className={a.blockCount ? "text-danger" : ""}>{a.blockCount}</span></span>} />
         <Stat
           label={status === "running" ? "Next send" : "Last send"}
-          value={status === "running" ? (a.busy ? "now" : a.stopReason === "daily_cap" ? "tomorrow" : inFuture(a.nextSendAt, now) || "—") : a.lastSendAt ? ago(a.lastSendAt, now) : "never"}
-          sub={status === "running" ? (a.restStart ? "rest " + a.restStart + "–" + a.restEnd : "last " + (a.lastSendAt ? ago(a.lastSendAt, now) : "never")) : fmtDateTime(a.lastSendAt, tz)}
+          value={status === "running" ? (a.busy ? "now" : a.stopReason === "daily_cap" ? "tomorrow" : overdue(a.nextSendAt, now) ? "overdue" : inFuture(a.nextSendAt, now) || "—") : a.lastSendAt ? ago(a.lastSendAt, now) : "never"}
+          tone={status === "running" && !a.busy && a.stopReason !== "daily_cap" && overdue(a.nextSendAt, now) ? "warn" : undefined}
+          sub={status === "running" ? (overdue(a.nextSendAt, now) && !a.busy && a.stopReason !== "daily_cap" ? "planned " + ago(a.nextSendAt, now) + ", nothing sent since" : a.restStart ? "rest " + a.restStart + "–" + a.restEnd : "last " + (a.lastSendAt ? ago(a.lastSendAt, now) : "never")) : fmtDateTime(a.lastSendAt, tz)}
         />
       </div>
 

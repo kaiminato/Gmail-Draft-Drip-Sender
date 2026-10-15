@@ -356,6 +356,12 @@ extension reload is still the reliable move.
   the dashboard shows it too. Only a Gmail block, an empty Drafts folder, or Stop ends a run.
 - **Nothing is ever deleted.** If a send can't be completed the draft is saved and closed,
   never discarded.
+- **An extension update or a browser restart does not end a run.** Chrome clears every
+  alarm when an extension updates, which once left running accounts sitting idle with
+  nothing armed and "next any moment" on the dashboard. The extension now re-plans and
+  carries on after an update or restart, and every heartbeat re-arms a schedule that went
+  missing for any other reason. The dashboard flags a send that is more than half an hour
+  overdue in amber.
 
 ## Things worth knowing
 

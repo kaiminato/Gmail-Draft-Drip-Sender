@@ -28,6 +28,14 @@ export function inFuture(date: Date | string | null | undefined, now = Date.now(
   return "in " + Math.floor(h / 24) + "d";
 }
 
+// A planned send that passed a while ago with nothing sent since: the
+// extension lost its schedule (it re-arms on its next heartbeat).
+export const OVERDUE_AFTER_MS = 30 * 60 * 1000;
+export function overdue(nextSendAt: Date | string | null | undefined, now = Date.now()): boolean {
+  if (!nextSendAt) return false;
+  return now - new Date(nextSendAt).getTime() > OVERDUE_AFTER_MS;
+}
+
 export function fmtDateTime(date: Date | string | null | undefined, tz: string): string {
   if (!date) return "—";
   try {
