@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import type { Account } from "@/db/schema";
 import { requireAdmin } from "@/lib/admin";
-import { statusOf, draftsLevel, BUCKET_LABEL, LOW_DRAFTS } from "@/lib/status";
+import { statusOf, draftsLevel, BUCKET_LABEL, LOW_DRAFTS, type Status } from "@/lib/status";
 import { ago, cmpVersion, fmtDateTime, inFuture, nowMs, stopReasonLabel } from "@/lib/format";
 import { dashboardTz } from "@/lib/stats";
-import { TIER_META, TIER_ORDER } from "@/lib/tiers";
+import { TIER_META, TIER_ORDER, isTier } from "@/lib/tiers";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { AutoSubmitSelect } from "@/components/AutoSubmitSelect";
 import { BulkBar, SelectAll } from "@/components/BulkBar";
@@ -19,13 +20,81 @@ export const dynamic = "force-dynamic";
 
 const cell = td + " whitespace-nowrap";
 
+/* ---------- sorting ---------- */
+
+// The list sorts on the server from the URL (?sort=drafts&dir=desc), so it
+// survives the auto-refresh and combines with the manager filter.
+const SORT_KEYS = ["email", "manager", "mode", "status", "drafts", "total"] as const;
+type SortKey = (typeof SORT_KEYS)[number];
+type Dir = "asc" | "desc";
+const isSortKey = (x: unknown): x is SortKey => typeof x === "string" && (SORT_KEYS as readonly string[]).includes(x);
+// Counts are more useful biggest first; text, A to Z.
+const FIRST_DIR: Record<SortKey, Dir> = { email: "asc", manager: "asc", mode: "asc", status: "asc", drafts: "asc", total: "desc" };
+const STATUS_RANK: Record<Status, number> = { running: 0, blocked: 1, empty: 2, stopped: 3, offline: 4 };
+// A range stands in for a number at a point inside it; "unknown" has no value.
+const BUCKET_RANK: Record<string, number> = { none: 0, "1-10": 5, "10+": 11 };
+
+type Row = { a: Account; status: Status; drafts: ReturnType<typeof draftsLevel>; manager: string | null };
+
+// null means "no value"; those rows go last whichever way the sort runs.
+function sortValue(r: Row, key: SortKey): string | number | null {
+  switch (key) {
+    case "email": return (r.a.email || "~" + r.a.deviceId).toLowerCase();
+    case "manager": return r.manager ? r.manager.toLowerCase() : null;
+    case "mode": return isTier(r.a.tier) ? TIER_ORDER.indexOf(r.a.tier) : null;
+    case "status": return STATUS_RANK[r.status];
+    case "drafts": return typeof r.a.remainingCount === "number" ? r.a.remainingCount : (BUCKET_RANK[r.a.remainingBucket] ?? null);
+    case "total": return r.a.totalSent;
+  }
+}
+
+function compareRows(key: SortKey, dir: Dir) {
+  const sign = dir === "asc" ? 1 : -1;
+  return (x: Row, y: Row) => {
+    const a = sortValue(x, key);
+    const b = sortValue(y, key);
+    if (a === null && b === null) return 0;
+    if (a === null) return 1;
+    if (b === null) return -1;
+    const d = typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b));
+    if (d) return d * sign;
+    return sortValue(x, "email")!.toString().localeCompare(sortValue(y, "email")!.toString());
+  };
+}
+
+// A column header that links to the list sorted by that column; a second
+// click on the active one flips the direction.
+function SortTh({ col, label, sort, dir, base, className = "" }: { col: SortKey; label: string; sort: SortKey; dir: Dir; base: string; className?: string }) {
+  const active = sort === col;
+  const next: Dir = active ? (dir === "asc" ? "desc" : "asc") : FIRST_DIR[col];
+  return (
+    <th className={th + " " + className}>
+      <Link
+        href={base + "sort=" + col + "&dir=" + next}
+        className={"inline-flex items-center gap-1 transition-colors hover:text-fg " + (active ? "text-fg" : "")}
+        title={"Sort by " + label.toLowerCase() + (active ? ", " + (next === "asc" ? "ascending" : "descending") : "")}
+      >
+        {label}
+        <span aria-hidden="true" className={"text-[9px] " + (active ? "text-accent" : "text-muted/50")}>
+          {active ? (dir === "asc" ? "▲" : "▼") : "⇅"}
+        </span>
+      </Link>
+    </th>
+  );
+}
+
 export default async function AccountsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ manager?: string }>;
+  searchParams: Promise<{ manager?: string; sort?: string; dir?: string }>;
 }) {
   await requireAdmin();
-  const { manager: filter = "" } = await searchParams;
+  const { manager: filter = "", sort: sortParam, dir: dirParam } = await searchParams;
+  const sort: SortKey = isSortKey(sortParam) ? sortParam : "email";
+  const dir: Dir = dirParam === "asc" || dirParam === "desc" ? dirParam : FIRST_DIR[sort];
+  // Links keep the filter; the filter keeps the sort.
+  const base = "/?" + (filter ? "manager=" + encodeURIComponent(filter) + "&" : "");
+  const sortQuery = sortParam ? "sort=" + sort + "&dir=" + dir : "";
   const tz = dashboardTz();
 
   const managers = await db.select().from(schema.managers).orderBy(asc(schema.managers.name));
@@ -40,7 +109,13 @@ export default async function AccountsPage({
   const managerOptions = managers.map((m) => ({ value: m.id, label: m.name }));
   const managerName = new Map(managers.map((m) => [m.id, m.name]));
   const now = nowMs();
-  const rows = accounts.map((a) => ({ a, status: statusOf(a, now), drafts: draftsLevel(a.remainingCount, a.remainingBucket) }));
+  const rows: Row[] = accounts.map((a) => ({
+    a,
+    status: statusOf(a, now),
+    drafts: draftsLevel(a.remainingCount, a.remainingBucket),
+    manager: a.managerId ? managerName.get(a.managerId) ?? null : null,
+  }));
+  rows.sort(compareRows(sort, dir));
 
   const tally = { running: 0, stopped: 0, empty: 0, blocked: 0, offline: 0 };
   for (const r of rows) tally[r.status]++;
@@ -65,7 +140,7 @@ export default async function AccountsPage({
       <AutoRefresh seconds={30} />
 
       <PageHeader title="Accounts" description="Every extension install, as reported on its last heartbeat.">
-        <ManagerFilter value={filter} managers={managers} className={select} />
+        <ManagerFilter value={filter} managers={managers} className={select} keep={sortQuery} />
       </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
@@ -91,13 +166,13 @@ export default async function AccountsPage({
           <thead className="border-b border-line">
             <tr>
               <th className={th + " w-8"}><SelectAll /></th>
-              <th className={th}>Account</th>
-              <th className={th}>Manager</th>
-              <th className={th}>Mode</th>
-              <th className={th}>Status</th>
-              <th className={th + " text-right"}>Drafts left</th>
+              <SortTh col="email" label="Account" sort={sort} dir={dir} base={base} />
+              <SortTh col="manager" label="Manager" sort={sort} dir={dir} base={base} />
+              <SortTh col="mode" label="Mode" sort={sort} dir={dir} base={base} />
+              <SortTh col="status" label="Status" sort={sort} dir={dir} base={base} />
+              <SortTh col="drafts" label="Drafts left" sort={sort} dir={dir} base={base} className="text-right" />
               <th className={th}>Last send</th>
-              <th className={th + " text-right"}>Total</th>
+              <SortTh col="total" label="Total" sort={sort} dir={dir} base={base} className="text-right" />
               <th className={th}>Version</th>
               <th className={th}>Control</th>
             </tr>
