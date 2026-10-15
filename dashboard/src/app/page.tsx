@@ -227,6 +227,11 @@ export default async function AccountsPage({
                   {a.running && a.plannedLeft != null && a.plannedLeft > 0 && (
                     <div className="text-xs text-muted">{a.plannedLeft} to go</div>
                   )}
+                  {a.running && a.dayTarget != null && a.dayTarget > 0 && a.plannedLeft != null && a.sentToday + a.plannedLeft < a.dayTarget && (
+                    <div className="text-xs text-muted" title="A run that starts partway through the day plans a share of the day's target (retried sends can trim it too); the full target applies from tomorrow.">
+                      {a.sentToday + a.plannedLeft} planned today, started late
+                    </div>
+                  )}
                   {a.running && !a.dayTarget && status === "running" && (
                     <div className="text-xs text-warn" title="Running, but the extension has not reported a plan for today">no plan yet</div>
                   )}

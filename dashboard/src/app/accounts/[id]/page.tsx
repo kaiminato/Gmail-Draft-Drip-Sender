@@ -66,7 +66,15 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Stat label="Mode" value={<TierBadge tier={a.tier} />} sub={a.tierSetAt ? "set " + ago(a.tierSetAt, now) : undefined} />
-        <Stat label="Today" value={a.dayTarget ? a.sentToday + " / " + a.dayTarget : a.sentToday} sub={a.plannedLeft != null && a.running ? a.plannedLeft + " to go" : "sent"} />
+        <Stat
+          label="Today"
+          value={a.dayTarget ? a.sentToday + " / " + a.dayTarget : a.sentToday}
+          sub={
+            a.plannedLeft != null && a.running
+              ? a.plannedLeft + " to go" + (a.dayTarget && a.sentToday + a.plannedLeft < a.dayTarget ? " · " + (a.sentToday + a.plannedLeft) + " planned today, started late" : "")
+              : "sent"
+          }
+        />
         <Stat label="Sent total" value={a.totalSent} />
         <Stat
           label="Drafts left"
