@@ -379,6 +379,17 @@
     return Array.from(set);
   }
 
+  // What to call a compose that was already open when the cycle began. Its
+  // Drafts row, matched by subject and recipient, supplies the id that
+  // verifySent() looks for; a compose that was never saved has no row.
+  function openComposeInfo(root, rows) {
+    const subjEl = root && root.querySelector('input[name="subjectbox"], input[name="subject"]');
+    const subject = (subjEl && String(subjEl.value || '').trim()) || '(no subject)';
+    const to = recipientsOf(root)[0] || '';
+    const match = rows.map(rowInfo).find((r) => r.subject === subject && (!to || !r.to || r.to === to));
+    return { subject, to, id: match ? match.id : null, leftOpen: true };
+  }
+
   function saveAndClose(root, sendBtn) {
     const scope = root || document;
     let btn = Array.from(scope.querySelectorAll('div[role="button"], button'))
@@ -586,10 +597,11 @@
       return { ok: false, code: 'NOT_GMAIL', message: 'This tab is not Gmail.' };
     }
 
-    // Never fight a compose window the user opened themselves.
-    if (findSendButtons().length) {
-      return { ok: false, code: 'COMPOSE_OPEN', message: 'A compose window is already open - waiting for it to close.' };
-    }
+    // A compose window that is already open is a draft left unsent: a send
+    // that did not take last cycle, or one somebody opened and walked away
+    // from. It goes out first; another draft is picked only when there is
+    // none. A minimised compose has no live Send button and does not count.
+    const leftOpen = findSendButtons().length > 0;
 
     const originalHash = location.hash;
     let sendBtn = null;
@@ -634,47 +646,58 @@
         emptyByNavStreak = 0;
         return { ok: false, code: 'DRAFTS_TIMEOUT', message: 'Drafts list did not finish loading.' };
       }
-      if (!all.length) return { ok: false, code: 'NO_DRAFTS', message: 'Drafts folder is empty.', remaining: 0 };
+      // Looked up again here: the inbox check and the switch to Drafts may
+      // have re-rendered the page, or the compose may have closed meanwhile.
+      const openBtn = leftOpen ? (findSendButtons()[0] || null) : null;
+      if (!all.length && !openBtn) return { ok: false, code: 'NO_DRAFTS', message: 'Drafts folder is empty.', remaining: 0 };
 
-      const usable = all.filter((r) => !skipIds.has(rowInfo(r).id));
-      if (!usable.length) {
-        return {
-          ok: false, code: 'ALL_SKIPPED', remaining: all.length,
-          message: 'All ' + all.length + ' remaining draft(s) were skipped as unsendable.'
-        };
+      let info;
+      if (openBtn) {
+        sendBtn = openBtn;
+        root = composeRoot(sendBtn);
+        info = openComposeInfo(root, all);
+      } else {
+        const usable = all.filter((r) => !skipIds.has(rowInfo(r).id));
+        if (!usable.length) {
+          return {
+            ok: false, code: 'ALL_SKIPPED', remaining: all.length,
+            message: 'All ' + all.length + ' remaining draft(s) were skipped as unsendable.'
+          };
+        }
+
+        // Gmail lists drafts newest-first, so the oldest one sits at the bottom.
+        let row;
+        if (order === 'newest') row = usable[0];
+        else if (order === 'random') row = usable[Math.floor(Math.random() * usable.length)];
+        else row = usable[usable.length - 1];
+
+        info = rowInfo(row);
+        const before = new Set(findSendButtons());
+
+        await glanceAtList(row);
+
+        const openTarget = row.querySelector('.y6') || row.querySelector('.xY.a4W') || row.querySelector('.bog') || row;
+        await hoverThenClick(openTarget);
+
+        sendBtn = await waitFor(() => findSendButtons().find((b) => !before.has(b)), 15000, 250);
+        if (!sendBtn) {
+          return {
+            ok: false, code: 'COMPOSE_NOT_OPEN', draft: info,
+            message: 'Draft "' + info.subject + '" did not open into a compose window. ' +
+              '[tab ' + (document.hidden ? 'hidden' : 'visible') + '; ' +
+              findSendButtons().length + ' send buttons on the page; ' +
+              listRows().length + ' drafts listed]'
+          };
+        }
+
+        root = composeRoot(sendBtn);
       }
-
-      // Gmail lists drafts newest-first, so the oldest one sits at the bottom.
-      let row;
-      if (order === 'newest') row = usable[0];
-      else if (order === 'random') row = usable[Math.floor(Math.random() * usable.length)];
-      else row = usable[usable.length - 1];
-
-      const info = rowInfo(row);
-      const before = new Set(findSendButtons());
-
-      await glanceAtList(row);
-
-      const openTarget = row.querySelector('.y6') || row.querySelector('.xY.a4W') || row.querySelector('.bog') || row;
-      await hoverThenClick(openTarget);
-
-      sendBtn = await waitFor(() => findSendButtons().find((b) => !before.has(b)), 15000, 250);
-      if (!sendBtn) {
-        return {
-          ok: false, code: 'COMPOSE_NOT_OPEN', draft: info,
-          message: 'Draft "' + info.subject + '" did not open into a compose window. ' +
-            '[tab ' + (document.hidden ? 'hidden' : 'visible') + '; ' +
-            findSendButtons().length + ' send buttons on the page; ' +
-            listRows().length + ' drafts listed]'
-        };
-      }
-
-      root = composeRoot(sendBtn);
       // Doubles as read-through time and as the beat Gmail needs to hydrate
       // the recipients and body before the send is valid.
       await pause(1400, 4200);
 
       const recipients = recipientsOf(root);
+      const openNote = info.leftOpen ? ' (was left open)' : '';
 
       // Gmail loads its compose module lazily, so the Send button can be in the
       // DOM and look perfectly live while its click handler is not attached
@@ -732,7 +755,7 @@
         return {
           ok: true, code: 'SENT', draft: info,
           recipients, remaining: Math.max(0, all.length - 1),
-          message: 'Sent "' + info.subject + '"' + (recipients.length ? ' to ' + recipients.join(', ') : '')
+          message: 'Sent "' + info.subject + '"' + (recipients.length ? ' to ' + recipients.join(', ') : '') + openNote
         };
       }
 
@@ -770,7 +793,7 @@
         return {
           ok: true, code: 'SENT', late: true, draft: info,
           recipients, remaining: Math.max(0, all.length - 1),
-          message: 'Sent "' + info.subject + '"' + (recipients.length ? ' to ' + recipients.join(', ') : '') +
+          message: 'Sent "' + info.subject + '"' + (recipients.length ? ' to ' + recipients.join(', ') : '') + openNote +
             ' (confirmed after the fact, ' + attempts + ' attempt' + (attempts === 1 ? '' : 's') + ')'
         };
       }

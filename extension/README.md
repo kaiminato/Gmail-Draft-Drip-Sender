@@ -369,8 +369,10 @@ extension reload is still the reliable move.
 
 - **Drafts with no recipient** are skipped and remembered, so it doesn't jam on them. The
   count shows in the popup; **Clear skips** makes it retry them.
-- **A compose window you opened yourself** pauses the sender — it will not touch your
-  window or fight you for focus. It retries every minute until you close it.
+- **A compose window left open** — a draft whose send did not take last time, or one
+  somebody opened and walked away from — is sent first at the next send time, before
+  another draft is picked. So never leave your own half-written mail open in a profile
+  that is running.
 - **Drafts with no subject** are sent; the "send without a subject?" prompt is confirmed.
 - **Sends confirmed late** appear in amber rather than green, worded "confirmed after the
   fact". That means the tab was slow, not that anything went wrong.
