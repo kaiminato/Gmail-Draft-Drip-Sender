@@ -32,6 +32,11 @@ What it shows and does:
 - **Stats** — sends today / this week / this month / all time, blocks, bounces and failed
   cycles, split by manager and by account, plus a 30-day daily chart.
 - **Account page** — the same controls plus that account's event log.
+- **Alerts** — while the dashboard is open on any page, a toast appears when an account
+  goes offline, is blocked, or drops under 5 drafts (and again when it runs out). The
+  sidebar's bell turns on desktop notifications for the same events in that browser, so
+  they reach you with the dashboard in a background tab. The watcher polls every half
+  minute and compares against the last picture it saw; nothing is stored server-side.
 
 ## Stack
 

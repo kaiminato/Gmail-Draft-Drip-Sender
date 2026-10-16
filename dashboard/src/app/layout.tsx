@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { auth, signOut } from "@/auth";
 import { APP_NAME, BrandMark } from "@/components/Brand";
 import { NavLinks } from "@/components/NavLinks";
+import { AlertWatcher, DesktopAlertsButton } from "@/components/AlertWatcher";
 import { RESTORE_NAV_SCRIPT, SidebarToggle } from "@/components/SidebarToggle";
 import "./globals.css";
 
@@ -34,6 +35,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               </Link>
               <NavLinks />
               <SidebarToggle />
+              <DesktopAlertsButton />
               <div className="mt-auto border-t border-line pt-3">
                 <form
                   action={async () => {
@@ -51,6 +53,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               </div>
             </aside>
             <main className="min-w-0 flex-1 px-4 py-5 md:px-7">{children}</main>
+            <AlertWatcher />
           </div>
         ) : (
           <main className="min-h-screen px-4 py-6">{children}</main>
