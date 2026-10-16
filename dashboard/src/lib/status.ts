@@ -4,7 +4,9 @@ export type Status = "running" | "stopped" | "empty" | "blocked" | "offline";
 
 export const OFFLINE_AFTER_MS = 3 * 60 * 1000;
 
-// One rule for every place a status pill appears.
+// One rule for every place a status pill appears. "empty" can be a run that
+// is still on and waiting for drafts (extension 1.6.3+) or, from older
+// builds, a run that stopped for lack of them.
 export function statusOf(
   a: Pick<Account, "running" | "stopReason" | "lastSeenAt">,
   now = Date.now(),

@@ -248,7 +248,8 @@ export default async function AccountsPage({
                       </span>
                     )}
                     {status === "running" && a.restStart && " · rest " + a.restStart + "–" + a.restEnd}
-                    {status !== "running" && status !== "offline" && stopReasonLabel(a.stopReason)}
+                    {status === "empty" && a.running && "no drafts left · waiting for drafts"}
+                    {status !== "running" && status !== "offline" && !(status === "empty" && a.running) && stopReasonLabel(a.stopReason)}
                     {status === "offline" && "last seen " + ago(a.lastSeenAt, now)}
                   </div>
                 </td>

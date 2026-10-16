@@ -489,6 +489,16 @@ function refreshDraftCount() {
     if (r.count === st.remainingCount) return;
     await setState({ remainingCount: r.count, remainingBucket: bucketOf(r.count) });
     await log('info', 'Drafts left: ' + r.count + '.');
+    // A run parked on an empty folder, or one whose planned times ran out
+    // while it was empty, picks the day up again with a plan for what is
+    // left of it.
+    const target = st.dayPlan && st.dayPlan.date === todayKey() ? st.dayPlan.dayTarget : 0;
+    const parked = st.stopReason === 'empty' || (st.stopReason === 'daily_cap' && st.sentToday < target);
+    if (r.count > 0 && st.running && parked && !busy) {
+      await setState({ stopReason: '' });
+      await ensurePlan(true);
+      await scheduleNextPlanned('Drafts are back (' + r.count + ').');
+    }
     scheduleHeartbeatSoon();
   })().catch(() => {}).finally(() => { draftCountInFlight = null; });
   return draftCountInFlight;
@@ -634,13 +644,22 @@ async function tick(manual) {
       break;
     }
     case 'NO_DRAFTS':
-      await stop('empty', 'Drafts folder is empty - stopped.', 'ok');
-      notify('Draft sender finished', 'All drafts have been sent.');
+    case 'ALL_SKIPPED': {
+      // Nothing to send right now. The run stays on: the folder is checked
+      // every few minutes and sending resumes, on a fresh plan for the rest
+      // of the day, as soon as drafts appear (see refreshDraftCount).
+      // Planned times that pass meanwhile are simply dropped.
+      const first = st.stopReason !== 'empty';
+      await scheduleNextPlanned('');
+      const after = await getState();
+      if (after.stopReason !== 'daily_cap') await setState({ stopReason: 'empty' });
+      if (first) {
+        const what = res.code === 'NO_DRAFTS' ? 'Drafts folder is empty' : 'Every remaining draft was skipped as unsendable';
+        await log(res.code === 'NO_DRAFTS' ? 'ok' : 'warn', what + ' - waiting for new drafts, checking every few minutes.');
+        notify('Waiting for drafts', what + '. Sending resumes on its own when drafts appear.');
+      }
       break;
-    case 'ALL_SKIPPED':
-      await stop('empty', 'Every remaining draft was skipped as unsendable - stopped.', 'warn');
-      notify('Draft sender stopped', 'Remaining drafts have no recipient.');
-      break;
+    }
     case 'NO_RECIPIENT':
       await schedule(SKIP_RETRY_DELAY_MS, 'Moving on to the next draft.');
       break;

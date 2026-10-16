@@ -377,7 +377,10 @@ extension reload is still the reliable move.
 - **Transient problems** (Gmail tab closed, page still loading, a draft that would not
   open) are retried once a minute for as long as the run is on; a failure never stops it.
   Every fifth failure in a row posts a notification, the log shows the running count, and
-  the dashboard shows it too. Only a Gmail block, an empty Drafts folder, or Stop ends a run.
+  the dashboard shows it too. Only a Gmail block or Stop ends a run.
+- **An empty Drafts folder parks the run, it does not end it.** The popup says "Waiting
+  for drafts" and the dashboard shows *Empty*; the folder is checked every few minutes,
+  and as soon as drafts appear the account plans what is left of its day and carries on.
 - **Nothing is ever deleted.** If a send can't be completed the draft is saved and closed,
   never discarded.
 - **An empty Drafts folder is recognised from the left nav**, which shows a number beside

@@ -67,6 +67,9 @@ function renderStatus() {
       main.textContent = 'Done for today';
       sub.textContent = 'Target reached. A new plan is made after midnight' +
         (state.nextSendAt ? ' (' + fmtWhen(state.nextSendAt) + ')' : '') + '.';
+    } else if (state.stopReason === 'empty') {
+      main.textContent = 'Waiting for drafts';
+      sub.textContent = 'The Drafts folder is empty. It is checked every few minutes and sending resumes on its own.';
     } else {
       const left = state.nextSendAt - Date.now();
       main.textContent = 'Next send in ' + fmtCountdown(left);
