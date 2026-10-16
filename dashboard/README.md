@@ -120,7 +120,10 @@ settings; the extension is the source of truth for everything it reports. The ro
 answers CORS preflight so the service worker can call it from an extension origin.
 
 Events are inserted by the id the extension generated, so a batch that is re-sent after
-a network failure is a no-op. Everything on the Stats page is computed from the `events`
+a network failure is a no-op. An account is keyed by the install's device id; when an
+extension is removed and installed again it reports under a new id, and once the old
+row has been silent for the offline threshold (three minutes) the next heartbeat folds it
+into the new one, moving its events and keeping its manager, so the address appears once. Everything on the Stats page is computed from the `events`
 table; the counters on the accounts table are what the extension last reported.
 
 Quick check with curl:

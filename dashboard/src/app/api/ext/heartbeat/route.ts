@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { heartbeatSchema, type HeartbeatEvent, type HeartbeatReply } from "@/lib/heartbeat";
+import { OFFLINE_AFTER_MS } from "@/lib/status";
 import { isTier } from "@/lib/tiers";
 
 export const dynamic = "force-dynamic";
@@ -106,6 +107,36 @@ export async function POST(req: Request) {
       },
     })
     .returning();
+
+  // A reinstall gets a fresh device id, so the same address turns up twice:
+  // the old install's row falls silent while the new one reports. Once a
+  // twin has been quiet past the offline threshold, fold it into the live
+  // row: its events move over (the statistics follow), its manager is kept
+  // when the live row has none, its blocks are added, and the row goes. Two
+  // installs that both keep reporting are left alone.
+  if (account.email) {
+    const silentTwins = await db
+      .select({ id: schema.accounts.id, managerId: schema.accounts.managerId, blockCount: schema.accounts.blockCount })
+      .from(schema.accounts)
+      .where(
+        and(
+          eq(schema.accounts.email, account.email),
+          ne(schema.accounts.id, account.id),
+          or(isNull(schema.accounts.lastSeenAt), lt(schema.accounts.lastSeenAt, new Date(now.getTime() - OFFLINE_AFTER_MS))),
+        ),
+      );
+    for (const twin of silentTwins) {
+      await db.update(schema.events).set({ accountId: account.id }).where(eq(schema.events.accountId, twin.id));
+      await db
+        .update(schema.accounts)
+        .set({
+          managerId: account.managerId ?? twin.managerId,
+          blockCount: sql`${schema.accounts.blockCount} + ${twin.blockCount}`,
+        })
+        .where(eq(schema.accounts.id, account.id));
+      await db.delete(schema.accounts).where(eq(schema.accounts.id, twin.id));
+    }
+  }
 
   // Events: inserted once each, by the id the extension generated.
   const incoming = hb.events ?? [];
