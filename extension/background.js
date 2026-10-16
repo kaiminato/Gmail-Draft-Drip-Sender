@@ -663,10 +663,6 @@ async function tick(manual) {
     case 'NO_RECIPIENT':
       await schedule(SKIP_RETRY_DELAY_MS, 'Moving on to the next draft.');
       break;
-    case 'COMPOSE_OPEN':
-      // You are writing something yourself - wait it out, do not count it as a failure.
-      await schedule(RETRY_DELAY_MS, 'Waiting for your compose window to close.');
-      break;
     case 'BUSY':
       break;
     default: {
