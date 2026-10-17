@@ -88,7 +88,8 @@ const DEFAULTS = {
   serverLastTryAt: 0,
   serverLastOkAt: 0,
   serverLastError: '',
-  cycleStartedAt: 0
+  cycleStartedAt: 0,
+  gmailMissingSince: 0     // when a running account was first seen without a Gmail tab
 };
 
 let busy = false;
@@ -1054,8 +1055,9 @@ async function executeCommand(cmd) {
 // then nothing could be counted or read. Now a start schedules one within a
 // minute or so, staggered so ten profiles do not load Gmail together, and
 // the heartbeat watches for a tab that stays missing (closed by hand, or a
-// start that was missed) and opens one after a few minutes.
-let gmailMissingSince = 0;
+// start that was missed) and opens one after a few minutes. The "missing
+// since" mark lives in storage: the worker is put to sleep between
+// heartbeats, so anything kept in memory starts from zero every time.
 
 function scheduleGmailTabOpen() {
   // Alarms survive the worker being put to sleep; a timer would not.
@@ -1080,11 +1082,14 @@ async function openGmailTabIfMissing(why) {
 
 async function watchGmailTab() {
   const st = await getState();
-  if (!st.running) { gmailMissingSince = 0; return; }
-  if (await findGmailTab()) { gmailMissingSince = 0; return; }
-  if (!gmailMissingSince) { gmailMissingSince = Date.now(); return; }
-  if (Date.now() - gmailMissingSince < GMAIL_MISSING_MS) return;
-  gmailMissingSince = 0;
+  const since = Number(st.gmailMissingSince) || 0;
+  if (!st.running || await findGmailTab()) {
+    if (since) await setState({ gmailMissingSince: 0 });
+    return;
+  }
+  if (!since) { await setState({ gmailMissingSince: Date.now() }); return; }
+  if (Date.now() - since < GMAIL_MISSING_MS) return;
+  await setState({ gmailMissingSince: 0 });
   await openGmailTabIfMissing('for ' + Math.round(GMAIL_MISSING_MS / 60000) + ' minutes');
 }
 
@@ -1134,6 +1139,8 @@ chrome.runtime.onInstalled.addListener(async () => {
   await injectIntoOpenGmailTabs();
   // An update clears the alarms; a running account carries on from here.
   await resumeIfNeeded('Extension updated to v' + getVersion() + '; carrying on.');
+  // A browser restart with changed files arrives here, not at onStartup.
+  if (st.running) scheduleGmailTabOpen();
   sendHeartbeat('boot').catch(() => {});
 });
 
