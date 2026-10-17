@@ -376,6 +376,14 @@ extension reload is still the reliable move.
 - **Drafts with no subject** are sent; the "send without a subject?" prompt is confirmed.
 - **Sends confirmed late** appear in amber rather than green, worded "confirmed after the
   fact". That means the tab was slow, not that anything went wrong.
+- **The dashboard host's browser check.** Vercel's DDoS mitigation sometimes answers the
+  heartbeats from a busy address (a VPS running many profiles) with a browser challenge
+  instead of passing them on; the popup then shows "dashboard error · HTTP 429 browser
+  check…" and the dashboard flips the account offline. The extension passes the check
+  itself: it opens the dashboard in a background tab for a few seconds, Chrome clears the
+  checkpoint and earns the cookie, the tab closes, and heartbeats resume with that cookie.
+  The log says when this happened. Heartbeats are also jittered by a few seconds so the
+  profiles on one machine do not all report in the same instant.
 - **Transient problems** (Gmail tab closed, page still loading, a draft that would not
   open) are retried once a minute for as long as the run is on; a failure never stops it.
   Every fifth failure in a row posts a notification, the log shows the running count, and

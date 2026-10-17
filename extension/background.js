@@ -41,6 +41,9 @@ const START_STAGGER_MIN = 20;          // dashboard-triggered starts spread over
 const MAX_QUEUED_EVENTS = 500;
 const EVENTS_PER_HEARTBEAT = 100;
 const HEARTBEAT_TIMEOUT_MS = 15000;
+const HEARTBEAT_JITTER_MS = 8000;        // alarm beats are spread so profiles on one machine do not fire together
+const CHALLENGE_SOLVE_EVERY_MS = 5 * 60000; // at most one browser-check tab this often
+const CHALLENGE_TAB_MAX_MS = 25000;      // how long that tab gets to clear the check
 const CYCLE_STALE_MS = 10 * 60000;
 
 const DEFAULTS = {
@@ -830,6 +833,64 @@ function scheduleHeartbeatSoon() {
   }, 3000);
 }
 
+/* ---------- the host's browser check ---------- */
+
+// Vercel's DDoS mitigation sometimes answers a heartbeat from a busy address
+// (a VPS running many profiles) with a browser challenge instead of passing
+// it to the dashboard: HTTP 429 or 403, header x-vercel-mitigated: challenge,
+// and an HTML page whose script proves a real browser and earns a cookie. A
+// background fetch cannot run that script, but a tab can, and the cookie it
+// earns rides on later fetches because they include credentials. So a
+// challenge opens the dashboard in a background tab, waits for the checkpoint
+// to clear, closes the tab and beats again.
+let challengeSolve = null;
+let lastChallengeSolveAt = 0;
+
+function isChallenge(r) {
+  const how = (r.headers.get('x-vercel-mitigated') || '').toLowerCase();
+  if (how) return how.includes('challenge');
+  const type = r.headers.get('content-type') || '';
+  return (r.status === 429 || r.status === 403) && /text\/html/i.test(type);
+}
+
+function solveChallenge() {
+  if (challengeSolve) return challengeSolve;
+  if (Date.now() - lastChallengeSolveAt < CHALLENGE_SOLVE_EVERY_MS) return Promise.resolve(false);
+  lastChallengeSolveAt = Date.now();
+  const nap = (ms) => new Promise((res) => setTimeout(res, ms));
+  challengeSolve = (async () => {
+    let tab = null;
+    try {
+      tab = await chrome.tabs.create({ url: CFG.apiBase.replace(/\/+$/, '') + '/login', active: false });
+      // The checkpoint page reloads into the real page once it is satisfied;
+      // with a cookie still valid there is no checkpoint and it loads at once.
+      const started = Date.now();
+      let cleared = false;
+      while (Date.now() - started < CHALLENGE_TAB_MAX_MS) {
+        await nap(1500);
+        let t = null;
+        try { t = await chrome.tabs.get(tab.id); } catch (_) { break; }
+        if (t.status === 'complete' && !/checkpoint|verif|just a moment|challenge/i.test(t.title || '')) {
+          cleared = true;
+          await nap(1000); // let the cookie land before the tab goes
+          break;
+        }
+      }
+      await log(cleared ? 'info' : 'warn', cleared
+        ? 'Passed the dashboard host\'s browser check in a background tab; reporting resumes.'
+        : 'Opened the dashboard host to pass its browser check, but it did not clear within ' +
+          Math.round(CHALLENGE_TAB_MAX_MS / 1000) + 's.');
+      return cleared;
+    } catch (e) {
+      await log('warn', 'Could not open a tab for the dashboard host\'s browser check: ' + String((e && e.message) || e));
+      return false;
+    } finally {
+      if (tab) { try { await chrome.tabs.remove(tab.id); } catch (_) {} }
+    }
+  })().finally(() => { challengeSolve = null; });
+  return challengeSolve;
+}
+
 function sendHeartbeat(trigger) {
   if (!SERVER_CONFIGURED) {
     return setState({ serverLastError: 'Not configured: set apiBase and apiKey in config.js.' })
@@ -855,9 +916,20 @@ function sendHeartbeat(trigger) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(body),
+        // Cookies for the dashboard host go along, which is how a passed
+        // browser check (see solveChallenge) carries over to these requests.
+        credentials: 'include',
         signal: ctl.signal
       });
       if (!r.ok) {
+        if (isChallenge(r)) {
+          // Pass it in a tab, then beat again straight away. Not awaited:
+          // this beat is already lost, and the tab may take a while.
+          solveChallenge().then((ok) => {
+            if (ok) setTimeout(() => sendHeartbeat('challenge').catch(() => {}), 1500);
+          });
+          throw new Error('HTTP ' + r.status + ' browser check by the host (Vercel DDoS mitigation); passing it in a tab');
+        }
         // The dashboard says why in its JSON body (e.g. a rejected field).
         let detail = '';
         try { detail = (await r.text()).replace(/\s+/g, ' ').trim().slice(0, 160); } catch (_) {}
@@ -949,7 +1021,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === HEARTBEAT_ALARM) {
     // Watchdog: a running account must always have its next send armed.
     resumeIfNeeded('Send schedule was missing; resumed.').catch(() => {});
-    sendHeartbeat('alarm').catch(() => {});
+    // Jittered: ten profiles whose alarms were created in the same second
+    // would otherwise hit the dashboard in the same second, every time.
+    setTimeout(() => sendHeartbeat('alarm').catch(() => {}), Math.random() * HEARTBEAT_JITTER_MS);
     return;
   }
   if (alarm.name !== ALARM) return;
