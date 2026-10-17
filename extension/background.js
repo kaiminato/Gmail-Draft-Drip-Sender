@@ -32,6 +32,8 @@ Planner.setTimeZone(CFG.timeZone);
 
 const ALARM = 'gmail-draft-drip';
 const HEARTBEAT_ALARM = 'drip-heartbeat';
+const OPEN_GMAIL_ALARM = 'drip-open-gmail';
+const GMAIL_MISSING_MS = 3 * 60000;      // a running account without a Gmail tab this long gets one opened
 const GMAIL_URL = 'https://mail.google.com/';
 const MAX_LOG = 200;
 const RETRY_DELAY_MS = 60 * 1000;
@@ -1045,15 +1047,61 @@ async function executeCommand(cmd) {
   setTimeout(() => sendHeartbeat('ack').catch(() => {}), 500);
 }
 
+/* ---------- the Gmail tab after a browser start ---------- */
+
+// A running account used to get its Gmail tab back only at the next planned
+// send, which in a rest block can be hours after the browser started; until
+// then nothing could be counted or read. Now a start schedules one within a
+// minute or so, staggered so ten profiles do not load Gmail together, and
+// the heartbeat watches for a tab that stays missing (closed by hand, or a
+// start that was missed) and opens one after a few minutes.
+let gmailMissingSince = 0;
+
+function scheduleGmailTabOpen() {
+  // Alarms survive the worker being put to sleep; a timer would not.
+  try { chrome.alarms.create(OPEN_GMAIL_ALARM, { delayInMinutes: 0.5 + Math.random() }); } catch (_) {}
+}
+
+async function openGmailTabIfMissing(why) {
+  const st = await getState();
+  if (!st.running || busy) return false;
+  if (await findGmailTab()) return false;
+  try {
+    // In the background: the send cycle brings it forward when it needs to,
+    // and a profile set to stay out of the way keeps staying out of the way.
+    await chrome.tabs.create({ url: GMAIL_URL, active: false });
+    await log('info', 'No Gmail tab ' + why + ' - opened one in the background.');
+    return true;
+  } catch (e) {
+    await log('warn', 'Could not open a Gmail tab ' + why + ': ' + String((e && e.message) || e));
+    return false;
+  }
+}
+
+async function watchGmailTab() {
+  const st = await getState();
+  if (!st.running) { gmailMissingSince = 0; return; }
+  if (await findGmailTab()) { gmailMissingSince = 0; return; }
+  if (!gmailMissingSince) { gmailMissingSince = Date.now(); return; }
+  if (Date.now() - gmailMissingSince < GMAIL_MISSING_MS) return;
+  gmailMissingSince = 0;
+  await openGmailTabIfMissing('for ' + Math.round(GMAIL_MISSING_MS / 60000) + ' minutes');
+}
+
 /* ---------- events ---------- */
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === HEARTBEAT_ALARM) {
     // Watchdog: a running account must always have its next send armed.
     resumeIfNeeded('Send schedule was missing; resumed.').catch(() => {});
+    watchGmailTab().catch(() => {});
     // Jittered: ten profiles whose alarms were created in the same second
     // would otherwise hit the dashboard in the same second, every time.
     setTimeout(() => sendHeartbeat('alarm').catch(() => {}), Math.random() * HEARTBEAT_JITTER_MS);
+    return;
+  }
+  if (alarm.name === OPEN_GMAIL_ALARM) {
+    openGmailTabIfMissing('after the browser started').catch(() => {});
     return;
   }
   if (alarm.name !== ALARM) return;
@@ -1074,6 +1122,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await setBadge(st.running);
   await ensureHeartbeatAlarm();
   await resumeIfNeeded('Browser restarted.');
+  if (st.running) scheduleGmailTabOpen();
 });
 
 chrome.runtime.onInstalled.addListener(async () => {

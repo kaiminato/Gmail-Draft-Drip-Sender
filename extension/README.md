@@ -386,6 +386,11 @@ extension reload is still the reliable move.
   couple of times, and the whole thing is retried every two minutes until it passes. The
   log says what happened each time. Heartbeats are also jittered by a few seconds so the
   profiles on one machine do not all report in the same instant.
+- **The Gmail tab comes back on its own.** When the browser starts with the account
+  running, a Gmail tab is opened in the background within a minute or so (staggered, so
+  ten profiles do not load Gmail together) rather than at the next planned send. A
+  running account that has had no Gmail tab for three minutes, for example after the tab
+  was closed by hand, gets one opened the same way. A stopped account opens nothing.
 - **Transient problems** (Gmail tab closed, page still loading, a draft that would not
   open) are retried once a minute for as long as the run is on; a failure never stops it.
   Every fifth failure in a row posts a notification, the log shows the running count, and
