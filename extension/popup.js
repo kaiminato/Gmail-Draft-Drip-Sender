@@ -107,7 +107,9 @@ function renderStatus() {
     srv.title = 'Fill in apiBase and apiKey in config.js (or config.local.js).';
     srv.classList.add('bad');
   } else if (state.serverLastError && state.serverLastTryAt > state.serverLastOkAt) {
-    srv.textContent = 'dashboard error';
+    // The reason on the pill itself; the full text stays in the tooltip.
+    const short = String(state.serverLastError).replace(/^HTTP (\d+).*/s, 'HTTP $1').slice(0, 32);
+    srv.textContent = 'dashboard error · ' + short;
     srv.title = (state.apiHost || '') + ': ' + state.serverLastError;
     srv.classList.add('bad');
   } else if (state.serverLastOkAt) {
