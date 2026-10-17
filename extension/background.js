@@ -857,11 +857,21 @@ function sendHeartbeat(trigger) {
         body: JSON.stringify(body),
         signal: ctl.signal
       });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (!r.ok) {
+        // The dashboard says why in its JSON body (e.g. a rejected field).
+        let detail = '';
+        try { detail = (await r.text()).replace(/\s+/g, ' ').trim().slice(0, 160); } catch (_) {}
+        throw new Error('HTTP ' + r.status + (detail ? ' ' + detail : ''));
+      }
       reply = await r.json();
     } catch (e) {
-      const msg = (e && e.name === 'AbortError') ? 'timed out' : String((e && e.message) || e);
+      const msg = (e && e.name === 'AbortError')
+        ? 'timed out after ' + Math.round(HEARTBEAT_TIMEOUT_MS / 1000) + 's'
+        : String((e && e.message) || e);
+      // Logged once per outage, not on every retry.
+      const wasFailing = !!(await getState()).serverLastError;
       await setState({ serverLastError: msg });
+      if (!wasFailing) await log('warn', 'Dashboard heartbeat failed (' + trigger + '): ' + msg + '. Retrying every heartbeat.');
       return false;
     } finally {
       clearTimeout(timer);
@@ -870,8 +880,10 @@ function sendHeartbeat(trigger) {
     // Prune by id: anything queued during the request stays.
     const sentIds = new Set(body.events.map((e) => e.id));
     const ackIds = new Set(body.acks.map((a) => a.id));
+    let recovered = false;
     await withQueueLock(async () => {
       const st = await getState();
+      recovered = !!st.serverLastError;
       await setState({
         eventQueue: st.eventQueue.filter((e) => !sentIds.has(e.id)),
         pendingAcks: st.pendingAcks.filter((a) => !ackIds.has(a.id)),
@@ -879,6 +891,10 @@ function sendHeartbeat(trigger) {
         serverLastError: ''
       });
     });
+    if (recovered) {
+      await log('ok', 'Dashboard reachable again' +
+        (sentIds.size ? ' (' + sentIds.size + ' queued event' + (sentIds.size === 1 ? '' : 's') + ' delivered)' : '') + '.');
+    }
 
     if (reply && reply.command) await executeCommand(reply.command);
     // More events may be waiting if the queue was long.
