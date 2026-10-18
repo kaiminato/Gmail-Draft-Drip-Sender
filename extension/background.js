@@ -118,7 +118,7 @@ function getVersion() {
 // on the VPS: a 1.6.11 manifest with the 1.6.6 worker.) So the code carries
 // its own version, and a mismatch reloads the extension. The two are bumped
 // together; extension/test/version.test.js checks that.
-const CODE_VERSION = '1.6.13';
+const CODE_VERSION = '1.6.14';
 
 async function ensureFreshCode() {
   const manifest = getVersion();
@@ -196,8 +196,26 @@ function newId() {
   }
 }
 
+// The dashboard rejects a heartbeat whose events exceed its field limits, and
+// a rejected event would sit at the front of the queue and fail every beat
+// after it (a draft sent to 100 recipients did exactly that). So events are
+// cut to those limits here, before they are queued.
+const EVENT_LIMITS = { subject: 500, from: 320, reason: 100, code: 100, message: 2000, source: 50, tier: 20 };
+function fitEvent(ev) {
+  const out = { ...ev };
+  for (const [k, n] of Object.entries(EVENT_LIMITS)) {
+    if (typeof out[k] === 'string' && out[k].length > n) out[k] = out[k].slice(0, n);
+  }
+  if (Array.isArray(out.recipients)) {
+    if (out.recipients.length > 50) out.recipientCount = out.recipients.length;
+    out.recipients = out.recipients.slice(0, 50).map((s) => String(s).slice(0, 320));
+  }
+  if (Array.isArray(out.subjects)) out.subjects = out.subjects.slice(0, 20).map((s) => String(s).slice(0, 500));
+  return out;
+}
+
 async function enqueueEvent(type, data) {
-  const ev = { id: newId(), t: Date.now(), type, ...(data || {}) };
+  const ev = fitEvent({ id: newId(), t: Date.now(), type, ...(data || {}) });
   await withQueueLock(async () => {
     const st = await getState();
     const q = [...st.eventQueue, ev].slice(-MAX_QUEUED_EVENTS);
@@ -643,11 +661,17 @@ async function runCycle(manual) {
     } else if (res.code === 'BLOCKED') {
       await setState({ pendingAlerts: res.alerts || [] });
       await log('err', res.message);
-    } else if (res.code === 'NO_RECIPIENT') {
+    } else if (res.code === 'NO_RECIPIENT' || res.code === 'TOO_MANY_RECIPIENTS') {
       const cur = await getState();
       const id = res.draft && res.draft.id;
       if (id && !cur.skipIds.includes(id)) await setState({ skipIds: [...cur.skipIds, id] });
-      await log('warn', res.message);
+      await log(res.code === 'TOO_MANY_RECIPIENTS' ? 'err' : 'warn', res.message);
+      if (res.code === 'TOO_MANY_RECIPIENTS') {
+        // Worth a line on the dashboard and a notification: on a compromised
+        // account this is the first visible sign.
+        await enqueueEvent('failed', { code: res.code, message: res.message || '' });
+        notify('Suspicious draft skipped', 'A draft with ' + (res.recipientCount || 'many') + ' recipients was not sent. Check the Drafts folder and the account\'s security.');
+      }
     } else if (res.code === 'NO_DRAFTS') {
       await setState({ remainingBucket: 'none', remainingCount: 0 });
       await log('info', res.message);
@@ -709,6 +733,7 @@ async function tick(manual) {
       break;
     }
     case 'NO_RECIPIENT':
+    case 'TOO_MANY_RECIPIENTS':
       await schedule(SKIP_RETRY_DELAY_MS, 'Moving on to the next draft.');
       break;
     case 'BUSY':
@@ -1009,6 +1034,17 @@ function sendHeartbeat(trigger) {
         // The dashboard says why in its JSON body (e.g. a rejected field).
         let detail = '';
         try { detail = (await r.text()).replace(/\s+/g, ' ').trim().slice(0, 160); } catch (_) {}
+        if (r.status === 400 && body.events.length) {
+          // A rejected batch would be re-sent and rejected on every beat
+          // from now on, taking the whole account offline. Drop it: the
+          // status fields still go out on the next beat.
+          const bad = new Set(body.events.map((e) => e.id));
+          await withQueueLock(async () => {
+            const st = await getState();
+            await setState({ eventQueue: st.eventQueue.filter((e) => !bad.has(e.id)) });
+          });
+          detail += ' - dropped ' + body.events.length + ' queued event(s) the dashboard rejected, so reporting can continue';
+        }
         throw new Error('HTTP ' + r.status + (detail ? ' ' + detail : ''));
       }
       reply = await r.json();

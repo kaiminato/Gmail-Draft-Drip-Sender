@@ -699,6 +699,23 @@
       const recipients = recipientsOf(root);
       const openNote = info.leftOpen ? ' (was left open)' : '';
 
+      // This sender exists for one-to-one mail. A draft addressed to dozens of
+      // people is not that, and on a compromised account it is exactly what an
+      // intruder plants in Drafts to get a blast sent. It is never sent: it is
+      // put back, skipped from now on, and reported.
+      const MAX_RECIPIENTS = 10;
+      if (recipients.length > MAX_RECIPIENTS) {
+        try { saveAndClose(root, sendBtn); } catch (_) {}
+        sendBtn = null;
+        await sleep(500);
+        return {
+          ok: false, code: 'TOO_MANY_RECIPIENTS', draft: info, remaining: all.length,
+          recipientCount: recipients.length,
+          message: 'Draft "' + info.subject + '" is addressed to ' + recipients.length + ' recipients - not sent, ' +
+            'skipped from now on. Check the Drafts folder: a draft like this may have been planted by someone else with access to the account.'
+        };
+      }
+
       // Gmail loads its compose module lazily, so the Send button can be in the
       // DOM and look perfectly live while its click handler is not attached
       // yet. That click lands on nothing and the compose simply sits there,
