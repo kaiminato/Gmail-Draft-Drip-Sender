@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireAdmin } from "@/lib/admin";
+import { accountMatches, filterWords } from "@/lib/filter";
 import { isTier, type Tier } from "@/lib/tiers";
 
 function refresh() {
@@ -104,10 +105,20 @@ export async function bulkAct(form: FormData) {
   if (!cmd) return;
   let ids = form.getAll("ids").filter((v): v is string => typeof v === "string" && v.length > 0);
   if (!ids.length) {
+    // Nothing ticked: "all" means the list as the page showed it, so the
+    // manager filter and the text filter both apply here as they did there.
     const filter = str(form, "managerId");
+    const words = filterWords(str(form, "q"));
     const where = filter === "none" ? isNull(schema.accounts.managerId) : filter ? eq(schema.accounts.managerId, filter) : undefined;
-    const rows = await db.select({ id: schema.accounts.id }).from(schema.accounts).where(where);
-    ids = rows.map((r) => r.id);
+    const rows = await db
+      .select({ id: schema.accounts.id, email: schema.accounts.email, deviceId: schema.accounts.deviceId, version: schema.accounts.version, managerId: schema.accounts.managerId })
+      .from(schema.accounts)
+      .where(where);
+    const managerName = new Map<string, string>();
+    if (words.length) {
+      for (const m of await db.select({ id: schema.managers.id, name: schema.managers.name }).from(schema.managers)) managerName.set(m.id, m.name);
+    }
+    ids = rows.filter((r) => accountMatches(r, r.managerId ? managerName.get(r.managerId) : null, words)).map((r) => r.id);
   }
   await queueFor(ids, cmd);
   refresh();

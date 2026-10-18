@@ -4,6 +4,7 @@ import { db, schema } from "@/db";
 import type { Account } from "@/db/schema";
 import { requireAdmin } from "@/lib/admin";
 import { statusOf, draftsLevel, BUCKET_LABEL, LOW_DRAFTS, type Status } from "@/lib/status";
+import { accountMatches, filterWords } from "@/lib/filter";
 import { ago, cmpVersion, fmtDateTime, inFuture, nowMs, overdue, stopReasonLabel } from "@/lib/format";
 import { dashboardTz } from "@/lib/stats";
 import { TIER_META, TIER_ORDER, isTier } from "@/lib/tiers";
@@ -12,6 +13,7 @@ import { HighlightRow } from "@/components/HighlightRow";
 import { AutoSubmitSelect } from "@/components/AutoSubmitSelect";
 import { BulkBar, SelectAll } from "@/components/BulkBar";
 import { ManagerFilter } from "@/components/ManagerFilter";
+import { SearchFilter } from "@/components/SearchFilter";
 import { StatusPill } from "@/components/StatusPill";
 import { TierBadge } from "@/components/TierBadge";
 import { btn, btnDanger, btnPrimary, btnTier, PageHeader, select, Stat, tableWrap, td, th } from "@/components/ui";
@@ -90,14 +92,19 @@ export default async function AccountsPage({
   // `highlight` (account id) or `device` (the extension's device id) scrolls
   // to that row and marks it: dashboard alerts link with the first, the
   // extension's own notifications with the second.
-  searchParams: Promise<{ manager?: string; sort?: string; dir?: string; highlight?: string; device?: string }>;
+  // `q` is the text filter: words that must all appear in the email, manager,
+  // device id or version (src/lib/filter.ts).
+  searchParams: Promise<{ manager?: string; sort?: string; dir?: string; q?: string; highlight?: string; device?: string }>;
 }) {
   await requireAdmin();
-  const { manager: filter = "", sort: sortParam, dir: dirParam, highlight, device } = await searchParams;
+  const { manager: filter = "", sort: sortParam, dir: dirParam, q: qParam, highlight, device } = await searchParams;
+  const q = (qParam || "").trim();
+  const words = filterWords(q);
   const sort: SortKey = isSortKey(sortParam) ? sortParam : "email";
   const dir: Dir = dirParam === "asc" || dirParam === "desc" ? dirParam : FIRST_DIR[sort];
-  // Links keep the filter; the filter keeps the sort.
-  const base = "/?" + (filter ? "manager=" + encodeURIComponent(filter) + "&" : "");
+  // Links keep both filters; the filters keep the sort.
+  const filterQuery = [filter ? "manager=" + encodeURIComponent(filter) : "", q ? "q=" + encodeURIComponent(q) : ""].filter(Boolean).join("&");
+  const base = "/?" + (filterQuery ? filterQuery + "&" : "");
   const sortQuery = sortParam ? "sort=" + sort + "&dir=" + dir : "";
   const tz = dashboardTz();
 
@@ -113,12 +120,14 @@ export default async function AccountsPage({
   const managerOptions = managers.map((m) => ({ value: m.id, label: m.name }));
   const managerName = new Map(managers.map((m) => [m.id, m.name]));
   const now = nowMs();
-  const rows: Row[] = accounts.map((a) => ({
-    a,
-    status: statusOf(a, now),
-    drafts: draftsLevel(a.remainingCount, a.remainingBucket),
-    manager: a.managerId ? managerName.get(a.managerId) ?? null : null,
-  }));
+  const rows: Row[] = accounts
+    .map((a) => ({
+      a,
+      status: statusOf(a, now),
+      drafts: draftsLevel(a.remainingCount, a.remainingBucket),
+      manager: a.managerId ? managerName.get(a.managerId) ?? null : null,
+    }))
+    .filter((r) => accountMatches(r.a, r.manager, words));
   rows.sort(compareRows(sort, dir));
   const highlightId =
     (highlight && rows.some((r) => r.a.id === highlight) ? highlight : null) ??
@@ -136,11 +145,12 @@ export default async function AccountsPage({
   const behind = rows.filter((r) => r.a.version && cmpVersion(r.a.version, latestVersion) < 0).length;
 
   const scope = filter === "none" ? "" : filter;
-  const scopeLabel = filter === "none"
-    ? "all " + rows.length + " unassigned"
-    : filter
-      ? "all " + rows.length + " under " + (managerName.get(filter) ?? "this manager")
-      : "all " + rows.length + " accounts";
+  const scopeLabel =
+    (filter === "none"
+      ? "all " + rows.length + " unassigned"
+      : filter
+        ? "all " + rows.length + " under " + (managerName.get(filter) ?? "this manager")
+        : "all " + rows.length + " accounts") + (q ? " matching “" + q + "”" : "");
 
   return (
     <div className="space-y-4">
@@ -148,7 +158,14 @@ export default async function AccountsPage({
       {highlightId && <HighlightRow id={highlightId} />}
 
       <PageHeader title="Accounts" description="Every extension install, as reported on its last heartbeat.">
-        <ManagerFilter value={filter} managers={managers} className={select} keep={sortQuery} />
+        <div className="flex flex-wrap items-center gap-2">
+          <SearchFilter
+            value={q}
+            keep={[filter ? "manager=" + encodeURIComponent(filter) : "", sortQuery].filter(Boolean).join("&")}
+            className="w-64 max-w-full"
+          />
+          <ManagerFilter value={filter} managers={managers} className={select} keep={[q ? "q=" + encodeURIComponent(q) : "", sortQuery].filter(Boolean).join("&")} />
+        </div>
       </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
@@ -166,6 +183,7 @@ export default async function AccountsPage({
           point at it with form="bulk", so the per-row forms stay valid. */}
       <form id="bulk" action={bulkAct}>
         <input type="hidden" name="managerId" value={scope} />
+        <input type="hidden" name="q" value={q} />
       </form>
       <BulkBar scopeLabel={scopeLabel} />
 
