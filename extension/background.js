@@ -118,7 +118,7 @@ function getVersion() {
 // on the VPS: a 1.6.11 manifest with the 1.6.6 worker.) So the code carries
 // its own version, and a mismatch reloads the extension. The two are bumped
 // together; extension/test/version.test.js checks that.
-const CODE_VERSION = '1.6.12';
+const CODE_VERSION = '1.6.13';
 
 async function ensureFreshCode() {
   const manifest = getVersion();
@@ -1241,6 +1241,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           gmailTabs: tabs.length,
           busy: busy || (st.cycleStartedAt > 0 && Date.now() - st.cycleStartedAt < CYCLE_STALE_MS),
           version: getVersion(),
+          codeVersion: CODE_VERSION,
           serverConfigured: SERVER_CONFIGURED,
           apiHost,
           timeZone: Planner.timeZone() || ''
