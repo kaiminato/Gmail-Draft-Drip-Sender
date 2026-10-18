@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { diffSnapshots, type AccountSnap, type Alert } from "@/lib/alerts";
+import { btnPrimary } from "@/components/ui";
 
 const POLL_MS = 30000;
 const TOAST_MS = 60000;
@@ -127,12 +128,12 @@ const subscribe = (cb: () => void) => {
 const readPerm = (): Perm => (typeof Notification === "undefined" ? "unsupported" : Notification.permission);
 const serverPerm = (): Perm => "default";
 
-// The sidebar button that turns desktop notifications on for this browser.
-// The browser only grants permission from a click, which is why it is a
-// button and not automatic.
-export function DesktopAlertsButton() {
+// The Settings-page control that turns desktop notifications on for this
+// browser. The browser only grants permission from a click, which is why it
+// is a button and not automatic, and the permission is per browser, so each
+// computer the dashboard is watched from enables it once.
+export function DesktopAlertsSetting() {
   const perm = useSyncExternalStore(subscribe, readPerm, serverPerm);
-  if (perm === "unsupported") return null;
 
   const ask = async () => {
     if (perm !== "default") return;
@@ -143,31 +144,29 @@ export function DesktopAlertsButton() {
     }
   };
 
-  const label = perm === "granted" ? "Desktop alerts on" : perm === "denied" ? "Alerts blocked in browser" : "Enable desktop alerts";
-  const title =
-    perm === "granted"
-      ? "You get a desktop notification when an account goes offline, is blocked, or drops under 5 drafts."
-      : perm === "denied"
-        ? "Notifications were blocked for this site; allow them in the browser's site settings."
-        : "Get a desktop notification when an account goes offline, is blocked, or drops under 5 drafts.";
-
+  if (perm === "unsupported") {
+    return <p className="text-sm text-muted">This browser does not support desktop notifications.</p>;
+  }
+  const state = perm === "granted" ? "On in this browser." : perm === "denied" ? "Blocked in this browser." : "Off.";
   return (
-    <button
-      type="button"
-      onClick={ask}
-      disabled={perm !== "default"}
-      title={title}
-      aria-label={label}
-      className={
-        "flex w-full items-center justify-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors " +
-        (perm === "default" ? "text-muted hover:bg-panel-2 hover:text-fg" : perm === "granted" ? "text-accent" : "text-muted/60")
-      }
-    >
-      <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-        <path d="M13.7 21a2 2 0 0 1-3.4 0" />
-      </svg>
-      <span className="nav-label hidden truncate md:inline">{label}</span>
-    </button>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-sm">
+          Desktop notifications: <span className={perm === "granted" ? "text-accent" : "text-muted"}>{state}</span>
+        </p>
+        <p className="mt-0.5 text-xs text-muted">
+          A notification when an account goes offline, is blocked by Gmail, or drops under 5 drafts; clicking it opens that account&apos;s
+          row. Per browser: enable it on each computer you watch from.
+        </p>
+      </div>
+      {perm === "default" && (
+        <button type="button" onClick={ask} className={btnPrimary}>
+          Enable
+        </button>
+      )}
+      {perm === "denied" && (
+        <span className="text-xs text-muted">Allow notifications for this site in the browser&apos;s site settings, then reload.</span>
+      )}
+    </div>
   );
 }

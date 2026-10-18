@@ -4,8 +4,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { auth, signOut } from "@/auth";
 import { APP_NAME, BrandMark } from "@/components/Brand";
 import { NavLinks } from "@/components/NavLinks";
-import { AlertWatcher, DesktopAlertsButton } from "@/components/AlertWatcher";
-import { RESTORE_NAV_SCRIPT, SidebarToggle } from "@/components/SidebarToggle";
+import { AlertWatcher } from "@/components/AlertWatcher";
+import { RESTORE_NAV_SCRIPT, SidebarBehavior } from "@/components/SidebarToggle";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -24,18 +24,20 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full bg-bg text-fg">
-        {/* Restores a collapsed sidebar before it is drawn. */}
+        {/* Collapses the sidebar before it is drawn; a click on it opens it. */}
         <script dangerouslySetInnerHTML={{ __html: RESTORE_NAV_SCRIPT }} />
         {signedIn ? (
           <div className="flex min-h-screen">
-            <aside className="sidebar sticky top-0 flex h-screen w-14 shrink-0 flex-col border-r border-line bg-panel px-2 py-3 transition-[width,padding] duration-150 md:w-56 md:px-3">
+            <aside
+              className="sidebar sticky top-0 flex h-screen w-14 shrink-0 flex-col border-r border-line bg-panel px-2 py-3 transition-[width,padding] duration-150 md:w-56 md:px-3"
+              title="Click to open the menu; click anywhere else to close it"
+            >
               <Link href="/" className="mb-5 flex items-center gap-2.5 px-1" title={APP_NAME}>
                 <BrandMark size={30} />
                 <span className="nav-label hidden text-[15px] font-semibold tracking-tight md:inline">{APP_NAME}</span>
               </Link>
               <NavLinks />
-              <SidebarToggle />
-              <DesktopAlertsButton />
+              <SidebarBehavior />
               <div className="mt-auto border-t border-line pt-3">
                 <form
                   action={async () => {
