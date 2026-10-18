@@ -8,6 +8,7 @@ import { ago, cmpVersion, fmtDateTime, inFuture, nowMs, overdue, stopReasonLabel
 import { dashboardTz } from "@/lib/stats";
 import { TIER_META, TIER_ORDER, isTier } from "@/lib/tiers";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { HighlightRow } from "@/components/HighlightRow";
 import { AutoSubmitSelect } from "@/components/AutoSubmitSelect";
 import { BulkBar, SelectAll } from "@/components/BulkBar";
 import { ManagerFilter } from "@/components/ManagerFilter";
@@ -86,10 +87,13 @@ function SortTh({ col, label, sort, dir, base, className = "" }: { col: SortKey;
 export default async function AccountsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ manager?: string; sort?: string; dir?: string }>;
+  // `highlight` (account id) or `device` (the extension's device id) scrolls
+  // to that row and marks it: dashboard alerts link with the first, the
+  // extension's own notifications with the second.
+  searchParams: Promise<{ manager?: string; sort?: string; dir?: string; highlight?: string; device?: string }>;
 }) {
   await requireAdmin();
-  const { manager: filter = "", sort: sortParam, dir: dirParam } = await searchParams;
+  const { manager: filter = "", sort: sortParam, dir: dirParam, highlight, device } = await searchParams;
   const sort: SortKey = isSortKey(sortParam) ? sortParam : "email";
   const dir: Dir = dirParam === "asc" || dirParam === "desc" ? dirParam : FIRST_DIR[sort];
   // Links keep the filter; the filter keeps the sort.
@@ -116,6 +120,9 @@ export default async function AccountsPage({
     manager: a.managerId ? managerName.get(a.managerId) ?? null : null,
   }));
   rows.sort(compareRows(sort, dir));
+  const highlightId =
+    (highlight && rows.some((r) => r.a.id === highlight) ? highlight : null) ??
+    (device ? rows.find((r) => r.a.deviceId === device)?.a.id ?? null : null);
 
   const tally = { running: 0, stopped: 0, empty: 0, blocked: 0, offline: 0 };
   for (const r of rows) tally[r.status]++;
@@ -138,6 +145,7 @@ export default async function AccountsPage({
   return (
     <div className="space-y-4">
       <AutoRefresh seconds={30} />
+      {highlightId && <HighlightRow id={highlightId} />}
 
       <PageHeader title="Accounts" description="Every extension install, as reported on its last heartbeat.">
         <ManagerFilter value={filter} managers={managers} className={select} keep={sortQuery} />
@@ -188,7 +196,12 @@ export default async function AccountsPage({
             {rows.map(({ a, status, drafts }) => (
               <tr
                 key={a.id}
-                className={"border-b border-line/60 last:border-0 " + (drafts === "zero" ? "row-zero" : drafts === "low" ? "row-low" : "")}
+                id={"acct-" + a.id}
+                className={
+                  "border-b border-line/60 last:border-0 " +
+                  (drafts === "zero" ? "row-zero" : drafts === "low" ? "row-low" : "") +
+                  (a.id === highlightId ? " row-highlight" : "")
+                }
               >
                 <td className={cell}>
                   <input type="checkbox" name="ids" value={a.id} form="bulk" aria-label={"Select " + (a.email || a.deviceId)} />

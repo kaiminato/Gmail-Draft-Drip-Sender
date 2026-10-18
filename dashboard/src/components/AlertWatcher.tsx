@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { diffSnapshots, type AccountSnap, type Alert } from "@/lib/alerts";
 
@@ -25,13 +26,17 @@ function saveSnapshot(snap: AccountSnap[]) {
   }
 }
 
-function desktopNotify(alerts: Alert[]) {
+function desktopNotify(alerts: Alert[], go: (href: string) => void) {
   if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
   for (const a of alerts) {
     try {
       const n = new Notification(a.title, { body: a.body, tag: a.accountId + ":" + a.kind });
-      // Bring the dashboard forward; the toast there links to the account.
-      n.onclick = () => window.focus();
+      // Bring the dashboard forward on the accounts list with this row
+      // scrolled to and marked (the filter is dropped so the row is there).
+      n.onclick = () => {
+        window.focus();
+        go("/?highlight=" + encodeURIComponent(a.accountId));
+      };
     } catch {
       // Some browsers only allow notifications from a worker; the toast remains.
     }
@@ -52,6 +57,7 @@ const TONE: Record<Alert["kind"], string> = {
 // background tab. Mounted once in the layout, so it runs on every page.
 export function AlertWatcher() {
   const [toasts, setToasts] = useState<Alert[]>([]);
+  const router = useRouter();
 
   useEffect(() => {
     let prev = loadSnapshot();
@@ -66,7 +72,7 @@ export function AlertWatcher() {
         saveSnapshot(prev);
         if (alerts.length) {
           setToasts((t) => [...alerts, ...t].slice(0, 8));
-          desktopNotify(alerts);
+          desktopNotify(alerts, (href) => router.push(href));
           for (const a of alerts) {
             setTimeout(() => setToasts((t) => t.filter((x) => x.id !== a.id)), TOAST_MS);
           }
@@ -81,7 +87,7 @@ export function AlertWatcher() {
       stopped = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [router]);
 
   if (!toasts.length) return null;
   return (
@@ -90,7 +96,7 @@ export function AlertWatcher() {
         <div key={a.id} className={"flex items-start gap-2 rounded-lg border border-line border-l-4 bg-panel px-3 py-2 shadow-2xl shadow-black/40 " + TONE[a.kind]}>
           <div className="min-w-0 flex-1">
             <div className="text-xs font-semibold">{a.title}</div>
-            <Link href={"/accounts/" + a.accountId} className="block truncate text-xs text-muted hover:text-fg" title={a.body}>
+            <Link href={"/?highlight=" + encodeURIComponent(a.accountId)} className="block truncate text-xs text-muted hover:text-fg" title={a.body + " Click to show the row."}>
               {a.body}
             </Link>
           </div>

@@ -118,7 +118,7 @@ function getVersion() {
 // on the VPS: a 1.6.11 manifest with the 1.6.6 worker.) So the code carries
 // its own version, and a mismatch reloads the extension. The two are bumped
 // together; extension/test/version.test.js checks that.
-const CODE_VERSION = '1.6.14';
+const CODE_VERSION = '1.6.15';
 
 async function ensureFreshCode() {
   const manifest = getVersion();
@@ -158,16 +158,32 @@ async function setBadge(running) {
   } catch (_) {}
 }
 
+// Clicking a notification opens the dashboard's account list scrolled to
+// this account's row. The target rides in the notification id, so a click
+// after the worker has been restarted still knows where to go.
 function notify(title, message) {
-  try {
-    chrome.notifications.create({
+  (async () => {
+    let url = '';
+    try {
+      const st = await getState();
+      if (SERVER_CONFIGURED && st.deviceId) {
+        url = CFG.apiBase.replace(/\/+$/, '') + '/?device=' + encodeURIComponent(st.deviceId);
+      }
+    } catch (_) {}
+    chrome.notifications.create((url ? 'go:' + url : 'n:') + '|' + newId(), {
       type: 'basic',
       iconUrl: chrome.runtime.getURL('icons/icon128.png'),
       title,
       message: String(message).slice(0, 300)
     });
-  } catch (_) {}
+  })().catch(() => {});
 }
+
+chrome.notifications.onClicked.addListener((id) => {
+  const m = /^go:(.+)\|[^|]*$/.exec(id || '');
+  try { chrome.notifications.clear(id); } catch (_) {}
+  if (m && m[1]) openUrlTab(m[1], true).catch(() => {});
+});
 
 function bucketOf(remaining) {
   if (typeof remaining !== 'number' || !(remaining >= 0)) return null;
@@ -327,17 +343,22 @@ async function findGmailTab() {
 // few seconds later. That is how profiles ended up with no Gmail tab for hours.
 // With no normal window at all (Chrome kept alive in the background), one is
 // made, so a send never fails on "No current window" either.
-async function createGmailTab(active) {
+async function openUrlTab(url, active) {
   let wins = [];
   try { wins = await chrome.windows.getAll({ windowTypes: ['normal'] }); } catch (_) {}
   if (!wins.length) {
-    const win = await chrome.windows.create({ url: GMAIL_URL, type: 'normal', focused: !!active });
+    const win = await chrome.windows.create({ url, type: 'normal', focused: !!active });
     const tab = win && win.tabs && win.tabs[0];
     if (!tab) throw new Error('the new window has no tab');
     return tab;
   }
   const win = wins.find((w) => w.focused) || wins[0];
-  return chrome.tabs.create({ url: GMAIL_URL, active: !!active, windowId: win.id });
+  if (active) { try { await chrome.windows.update(win.id, { focused: true }); } catch (_) {} }
+  return chrome.tabs.create({ url, active: !!active, windowId: win.id });
+}
+
+function createGmailTab(active) {
+  return openUrlTab(GMAIL_URL, active);
 }
 
 function waitForTabComplete(tabId, timeout = 45000) {
