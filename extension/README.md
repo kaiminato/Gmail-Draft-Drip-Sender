@@ -448,6 +448,6 @@ extension reload is still the reliable move.
 | `manifest.json` | MV3 manifest |
 | `config.js` | Dashboard URL and API key placeholders; override in gitignored `config.local.js` |
 | `planner.js` | The day planner: tiers, rest block, sessions, gaps. Pure functions; `node extension/test/planner.test.js` checks them |
-| `background.js` | Service worker: follows the plan, retries, counters, log, heartbeat and event queue, dashboard commands, bringing Gmail to the front |
+| `background.js` | Service worker: follows the plan, retries, counters, log, heartbeat and event queue, dashboard commands, bringing Gmail to the front. Carries `CODE_VERSION`, which must equal `manifest.json`'s version; `node extension/test/version.test.js` checks it. A worker whose code is older than the files reloads itself |
 | `content.js` | Runs inside Gmail: checks the inbox, finds a draft, opens it, clicks Send; reads the signed-in address |
 | `popup.html` / `.css` / `.js` | The Start/Stop panel |

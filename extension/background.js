@@ -112,6 +112,26 @@ function getVersion() {
   try { return chrome.runtime.getManifest().version; } catch (_) { return '?'; }
 }
 
+// Chrome can keep running a cached copy of this worker after the files on
+// disk were replaced: the manifest then reports the new version while the
+// code is the old one, and everything added since is silently absent. (Seen
+// on the VPS: a 1.6.11 manifest with the 1.6.6 worker.) So the code carries
+// its own version, and a mismatch reloads the extension. The two are bumped
+// together; extension/test/version.test.js checks that.
+const CODE_VERSION = '1.6.12';
+
+async function ensureFreshCode() {
+  const manifest = getVersion();
+  if (manifest === '?' || manifest === CODE_VERSION) return true;
+  const st = await getState();
+  const last = Number(st.codeReloadAt) || 0;
+  if (Date.now() - last < 10 * 60000) return false; // never a reload storm
+  await setState({ codeReloadAt: Date.now() });
+  await log('warn', 'The running code is v' + CODE_VERSION + ' but the files are v' + manifest + '; reloading the extension to pick them up.');
+  setTimeout(() => { try { chrome.runtime.reload(); } catch (_) {} }, 500);
+  return false;
+}
+
 const todayKey = () => Planner.dateKey(Date.now());
 
 async function rollDailyCounter(st) {
@@ -1186,8 +1206,10 @@ chrome.runtime.onInstalled.addListener(async () => {
   sendHeartbeat('boot').catch(() => {});
 });
 
-// Runs on every worker wake-up, so the heartbeat alarm can never go missing.
+// Runs on every worker wake-up, so the heartbeat alarm can never go missing
+// and stale worker code never survives a file update.
 ensureHeartbeatAlarm();
+ensureFreshCode().catch(() => {});
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return;
