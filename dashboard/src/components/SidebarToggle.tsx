@@ -36,5 +36,11 @@ export function SidebarBehavior() {
   return null;
 }
 
-// Runs before the sidebar renders; see above.
-export const RESTORE_NAV_SCRIPT = "document.documentElement.dataset.nav='collapsed'";
+// Runs before anything renders: collapses the sidebar (see above) and puts
+// the saved theme on <html> so the page never flashes the default colours.
+// Same storage key and attributes as src/lib/prefs.ts.
+export const RESTORE_NAV_SCRIPT =
+  "document.documentElement.dataset.nav='collapsed';" +
+  "try{var t=JSON.parse(localStorage.getItem('theme')||'{}'),d=document.documentElement.dataset;" +
+  "if(t.scheme==='dark'||t.scheme==='light')d.scheme=t.scheme;" +
+  "if(t.accent&&t.accent!=='emerald')d.accent=t.accent}catch(e){}";
