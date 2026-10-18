@@ -35,6 +35,18 @@ const TIER_LABEL = { few: 'Few', less: 'Less', normal: 'Normal', many: 'Many' };
 
 function renderStatus() {
   if (!state) return;
+  // The version, always; in red with both numbers when the worker that
+  // answered is older than the files on disk (it reloads itself shortly).
+  const ver = $('version');
+  if (state.codeVersion && state.version && state.codeVersion !== state.version) {
+    ver.textContent = 'v' + state.version + ' · running v' + state.codeVersion + ', reloading…';
+    ver.title = 'The files are v' + state.version + ' but the running code is v' + state.codeVersion + '. The extension reloads itself; if this stays, reload it on chrome://extensions.';
+    ver.classList.add('bad');
+  } else {
+    ver.textContent = 'v' + (state.version || '?');
+    ver.title = 'Extension version';
+    ver.classList.remove('bad');
+  }
   const box = $('status');
   const main = $('statusMain');
   const sub = $('statusSub');
