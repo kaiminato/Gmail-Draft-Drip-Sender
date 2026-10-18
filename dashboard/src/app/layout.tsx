@@ -1,15 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Lora } from "next/font/google";
 import { auth, signOut } from "@/auth";
 import { APP_NAME, BrandMark } from "@/components/Brand";
 import { NavLinks } from "@/components/NavLinks";
 import { AlertWatcher } from "@/components/AlertWatcher";
 import { RESTORE_NAV_SCRIPT, SidebarBehavior } from "@/components/SidebarToggle";
+import { themeCss } from "@/lib/themes";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+// The serif face a few themes use (Paper and friends).
+const lora = Lora({ variable: "--font-lora", subsets: ["latin"] });
+
+// Every theme's rule, generated once per build from the gallery data.
+const THEME_CSS = themeCss();
 
 export const metadata: Metadata = {
   title: { default: APP_NAME, template: "%s · " + APP_NAME },
@@ -22,9 +28,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const who = session?.method === "google" ? session.user?.email : "password admin";
 
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`} suppressHydrationWarning>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${lora.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        {/* The theme gallery's rules; the chosen one is matched by data-theme. */}
+        <style id="themes" dangerouslySetInnerHTML={{ __html: THEME_CSS }} />
+      </head>
       <body className="min-h-full bg-bg text-fg">
-        {/* Collapses the sidebar before it is drawn; a click on it opens it. */}
+        {/* Collapses the sidebar and applies the saved theme before anything is drawn. */}
         <script dangerouslySetInnerHTML={{ __html: RESTORE_NAV_SCRIPT }} />
         {signedIn ? (
           <div className="flex min-h-screen">

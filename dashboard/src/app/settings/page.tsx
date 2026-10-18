@@ -42,7 +42,7 @@ export default async function SettingsPage({
         <p className="rounded-md bg-danger/10 p-3 text-sm text-danger">{error}</p>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] lg:items-start">
       <div className="space-y-4">
       <Card title="Notifications">
         <NotificationPrefs />
