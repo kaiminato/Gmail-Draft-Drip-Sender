@@ -367,6 +367,11 @@ extension reload is still the reliable move.
 
 ## How it behaves
 
+- **Drafts with more than 10 recipients are never sent.** This sender is for one-to-one
+  mail; a draft addressed to dozens of people is what an intruder plants in Drafts of a
+  compromised account to get a blast sent (it happened). Such a draft is put back,
+  skipped from then on, logged in red, reported to the dashboard as a failure and
+  announced with a notification. Check the Drafts folder and the account's security.
 - **Drafts with no recipient** are skipped and remembered, so it doesn't jam on them. The
   count shows in the popup; **Clear skips** makes it retry them.
 - **A compose window left open** — a draft whose send did not take last time, or one

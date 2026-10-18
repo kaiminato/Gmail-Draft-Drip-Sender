@@ -3,20 +3,27 @@ import { z } from "zod";
 // What the extension sends every half minute. Everything is optional-tolerant
 // so an older extension build never gets a 400 for a missing field, and
 // unknown fields are dropped.
+// Event fields are cut to size rather than rejected: a rejected event stays at
+// the front of the extension's queue and fails every heartbeat after it, which
+// took an account offline for half a day over one draft with 100 recipients.
+const cut = (n: number) => z.string().transform((s) => s.slice(0, n));
+const cutList = (items: number, each: number) =>
+  z.array(z.string()).transform((a) => a.slice(0, items).map((s) => s.slice(0, each)));
+
 const eventSchema = z
   .object({
     id: z.string().min(1).max(80),
     t: z.number().finite(),
     type: z.enum(["sent", "failed", "blocked", "bounce", "started", "stopped"]),
-    subject: z.string().max(500).optional(),
-    recipients: z.array(z.string().max(320)).max(50).optional(),
-    from: z.string().max(320).optional(),
-    reason: z.string().max(100).optional(),
-    code: z.string().max(100).optional(),
-    message: z.string().max(2000).optional(),
-    subjects: z.array(z.string().max(500)).max(20).optional(),
-    source: z.string().max(50).optional(),
-    tier: z.string().max(20).optional(),
+    subject: cut(500).optional(),
+    recipients: cutList(50, 320).optional(),
+    from: cut(320).optional(),
+    reason: cut(100).optional(),
+    code: cut(100).optional(),
+    message: cut(2000).optional(),
+    subjects: cutList(20, 500).optional(),
+    source: cut(50).optional(),
+    tier: cut(20).optional(),
     late: z.boolean().optional(),
     remaining: z.number().nullable().optional(),
   })
