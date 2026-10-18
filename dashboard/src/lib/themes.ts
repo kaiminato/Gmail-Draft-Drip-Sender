@@ -129,6 +129,22 @@ export const THEMES: ThemeDef[] = [
 
 export const THEME_IDS = new Set(THEMES.map((t) => t.id));
 
+// The brand mark as a standalone SVG in a theme's own colours: the tab icon
+// (ThemeFavicon) is built from this, and it mirrors BrandMark, which draws
+// the same shapes from the CSS variables. Square themes get a square tile.
+export function brandSvg(k: ThemeTokens, radius = 1): string {
+  const r = (n: number) => (n * radius).toFixed(1);
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
+    `<rect x="2" y="2" width="60" height="60" rx="${r(16)}" fill="${k.accent}"/>` +
+    `<rect x="12" y="19" width="40" height="28" rx="${r(6)}" fill="${k.panel}"/>` +
+    `<path d="M15 24 L32 37 L49 24" fill="none" stroke="${k.accent}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>` +
+    `<circle cx="51" cy="16" r="7.5" fill="${k.panel}"/>` +
+    `<circle cx="51" cy="16" r="4" fill="${k.warn}"/>` +
+    `</svg>`
+  );
+}
+
 const FONT_VAR: Record<NonNullable<ThemeDef["font"]>, string> = {
   sans: "var(--font-geist-sans)",
   mono: "var(--font-geist-mono)",

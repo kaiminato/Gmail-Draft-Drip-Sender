@@ -6,6 +6,7 @@ import { APP_NAME, BrandMark } from "@/components/Brand";
 import { NavLinks } from "@/components/NavLinks";
 import { AlertWatcher } from "@/components/AlertWatcher";
 import { RESTORE_NAV_SCRIPT, SidebarBehavior } from "@/components/SidebarToggle";
+import { ThemeFavicon } from "@/components/ThemeFavicon";
 import { themeCss } from "@/lib/themes";
 import "./globals.css";
 
@@ -36,6 +37,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className="min-h-full bg-bg text-fg">
         {/* Collapses the sidebar and applies the saved theme before anything is drawn. */}
         <script dangerouslySetInnerHTML={{ __html: RESTORE_NAV_SCRIPT }} />
+        <ThemeFavicon />
         {signedIn ? (
           <div className="flex min-h-screen">
             <aside

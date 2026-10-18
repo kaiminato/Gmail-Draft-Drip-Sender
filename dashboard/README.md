@@ -1,4 +1,4 @@
-# Kai Email Observer
+# Email Watchdog
 
 Admin-only web app that every Gmail Draft Drip Sender extension reports to. Admins sign
 in with an allow-listed Google account or with a shared admin password; extensions
