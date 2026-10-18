@@ -1,7 +1,8 @@
 import { requireAdmin } from "@/lib/admin";
 import { BUILTIN_ADMIN_EMAILS, extraAdminEmails, norm, passwordIsDefault } from "@/lib/admins";
 import { btn, btnDanger, btnPrimary, Card, input, PageHeader, td, th } from "@/components/ui";
-import { DesktopAlertsSetting } from "@/components/AlertWatcher";
+import { NotificationPrefs } from "@/components/NotificationPrefs";
+import { ThemePicker } from "@/components/ThemePicker";
 import { addAdmin, changePassword, removeAdmin } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export default async function SettingsPage({
   const builtins = [...BUILTIN_ADMIN_EMAILS, ...(envAdmin && !BUILTIN_ADMIN_EMAILS.includes(envAdmin) ? [envAdmin] : [])];
 
   return (
-    <div className="max-w-2xl space-y-4">
+    <div className="max-w-5xl space-y-4">
       <PageHeader
         title="Settings"
         description={"Signed in " + (me.method === "google" ? "with Google as " + me.email : "with the admin password") + "."}
@@ -41,8 +42,10 @@ export default async function SettingsPage({
         <p className="rounded-md bg-danger/10 p-3 text-sm text-danger">{error}</p>
       )}
 
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+      <div className="space-y-4">
       <Card title="Notifications">
-        <DesktopAlertsSetting />
+        <NotificationPrefs />
       </Card>
 
       <Card title="Admin password">
@@ -98,6 +101,14 @@ export default async function SettingsPage({
           Built-in addresses are fixed in the code (and ADMIN_EMAIL, if set). Addresses added here can be removed again.
         </p>
       </Card>
+      </div>
+
+      <div className="space-y-4">
+        <Card title="Appearance">
+          <ThemePicker />
+        </Card>
+      </div>
+      </div>
     </div>
   );
 }

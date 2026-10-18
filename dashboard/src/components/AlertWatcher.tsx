@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { diffSnapshots, type AccountSnap, type Alert } from "@/lib/alerts";
-import { btnPrimary } from "@/components/ui";
+import { alertAllowed, loadAlertPrefs } from "@/lib/prefs";
 
 const POLL_MS = 30000;
 const TOAST_MS = 60000;
@@ -68,7 +68,11 @@ export function AlertWatcher() {
         const r = await fetch("/api/accounts/summary", { cache: "no-store" });
         if (!r.ok || stopped) return;
         const data = (await r.json()) as { accounts: AccountSnap[] };
-        const alerts = diffSnapshots(prev, data.accounts);
+        // The baseline moves on whether or not anything is shown, so a
+        // muted hour does not replay later. The switches on the Settings
+        // page decide what is shown, toasts and desktop pop-ups alike.
+        const prefs = loadAlertPrefs();
+        const alerts = diffSnapshots(prev, data.accounts).filter((a) => alertAllowed(prefs, a.kind));
         prev = data.accounts;
         saveSnapshot(prev);
         if (alerts.length) {
@@ -111,62 +115,6 @@ export function AlertWatcher() {
           </button>
         </div>
       ))}
-    </div>
-  );
-}
-
-/* ---------- desktop permission ---------- */
-
-type Perm = "unsupported" | "default" | "granted" | "denied";
-const listeners = new Set<() => void>();
-const subscribe = (cb: () => void) => {
-  listeners.add(cb);
-  return () => {
-    listeners.delete(cb);
-  };
-};
-const readPerm = (): Perm => (typeof Notification === "undefined" ? "unsupported" : Notification.permission);
-const serverPerm = (): Perm => "default";
-
-// The Settings-page control that turns desktop notifications on for this
-// browser. The browser only grants permission from a click, which is why it
-// is a button and not automatic, and the permission is per browser, so each
-// computer the dashboard is watched from enables it once.
-export function DesktopAlertsSetting() {
-  const perm = useSyncExternalStore(subscribe, readPerm, serverPerm);
-
-  const ask = async () => {
-    if (perm !== "default") return;
-    try {
-      await Notification.requestPermission();
-    } finally {
-      listeners.forEach((cb) => cb());
-    }
-  };
-
-  if (perm === "unsupported") {
-    return <p className="text-sm text-muted">This browser does not support desktop notifications.</p>;
-  }
-  const state = perm === "granted" ? "On in this browser." : perm === "denied" ? "Blocked in this browser." : "Off.";
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="min-w-0">
-        <p className="text-sm">
-          Desktop notifications: <span className={perm === "granted" ? "text-accent" : "text-muted"}>{state}</span>
-        </p>
-        <p className="mt-0.5 text-xs text-muted">
-          A notification when an account goes offline, is blocked by Gmail, or drops under 5 drafts; clicking it opens that account&apos;s
-          row. Per browser: enable it on each computer you watch from.
-        </p>
-      </div>
-      {perm === "default" && (
-        <button type="button" onClick={ask} className={btnPrimary}>
-          Enable
-        </button>
-      )}
-      {perm === "denied" && (
-        <span className="text-xs text-muted">Allow notifications for this site in the browser&apos;s site settings, then reload.</span>
-      )}
     </div>
   );
 }
