@@ -281,6 +281,25 @@ async function findGmailTab() {
     pool.slice().sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
 }
 
+// Opens Gmail in a normal browser window, named by id. Never in "the current
+// window": while the dashboard host's browser-check popup is up it is the
+// focused, hence current, window, and a tab created there is closed with it a
+// few seconds later. That is how profiles ended up with no Gmail tab for hours.
+// With no normal window at all (Chrome kept alive in the background), one is
+// made, so a send never fails on "No current window" either.
+async function createGmailTab(active) {
+  let wins = [];
+  try { wins = await chrome.windows.getAll({ windowTypes: ['normal'] }); } catch (_) {}
+  if (!wins.length) {
+    const win = await chrome.windows.create({ url: GMAIL_URL, type: 'normal', focused: !!active });
+    const tab = win && win.tabs && win.tabs[0];
+    if (!tab) throw new Error('the new window has no tab');
+    return tab;
+  }
+  const win = wins.find((w) => w.focused) || wins[0];
+  return chrome.tabs.create({ url: GMAIL_URL, active: !!active, windowId: win.id });
+}
+
 function waitForTabComplete(tabId, timeout = 45000) {
   return new Promise((resolve) => {
     const deadline = Date.now() + timeout;
@@ -390,7 +409,7 @@ async function acquireGmailTab() {
   let created = false;
   if (!tab) {
     try {
-      tab = await chrome.tabs.create({ url: GMAIL_URL, active: true });
+      tab = await createGmailTab(true);
     } catch (e) {
       return { error: 'NO_TAB', message: 'Could not open a Gmail tab: ' + ((e && e.message) || e) };
     }
@@ -1071,7 +1090,7 @@ async function openGmailTabIfMissing(why) {
   try {
     // In the background: the send cycle brings it forward when it needs to,
     // and a profile set to stay out of the way keeps staying out of the way.
-    await chrome.tabs.create({ url: GMAIL_URL, active: false });
+    await createGmailTab(false);
     await log('info', 'No Gmail tab ' + why + ' - opened one in the background.');
     return true;
   } catch (e) {
