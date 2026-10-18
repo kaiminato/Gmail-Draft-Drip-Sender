@@ -3,6 +3,7 @@
 // anyway, and the theme has to be known before the first paint (the inline
 // script in the layout reads the same key). Nothing here touches the server.
 import type { AlertKind } from "./alerts";
+import { AUTO_THEME_ID, THEME_IDS } from "./themes";
 
 const CHANGE = "prefs-change";
 
@@ -60,34 +61,21 @@ export function alertAllowed(p: AlertPrefs, kind: AlertKind, now = Date.now()): 
 
 /* ---------- theme ---------- */
 
-export type Scheme = "system" | "dark" | "light";
-export type Accent = "emerald" | "sky" | "violet" | "amber" | "rose";
-export type Theme = { scheme: Scheme; accent: Accent };
+// One theme from the gallery (src/lib/themes.ts) by id, or "auto", which
+// follows the operating system with the default dark and light looks.
+export type Theme = { id: string };
 export const THEME_KEY = "theme";
-export const DEFAULT_THEME: Theme = { scheme: "system", accent: "emerald" };
-
-export const SCHEMES: { value: Scheme; label: string; hint: string }[] = [
-  { value: "system", label: "System", hint: "Follows the operating system." },
-  { value: "dark", label: "Dark", hint: "Always dark." },
-  { value: "light", label: "Light", hint: "Always light." },
-];
-// The swatch is the dark-scheme accent; the stylesheet has the light one.
-export const ACCENTS: { value: Accent; label: string; swatch: string }[] = [
-  { value: "emerald", label: "Emerald", swatch: "#34d399" },
-  { value: "sky", label: "Sky", swatch: "#60a5fa" },
-  { value: "violet", label: "Violet", swatch: "#a78bfa" },
-  { value: "amber", label: "Amber", swatch: "#fbbf24" },
-  { value: "rose", label: "Rose", swatch: "#fb7185" },
-];
-
-const isScheme = (v: unknown): v is Scheme => SCHEMES.some((s) => s.value === v);
-const isAccent = (v: unknown): v is Accent => ACCENTS.some((a) => a.value === v);
+export const DEFAULT_THEME: Theme = { id: AUTO_THEME_ID };
 
 export function parseTheme(raw: string | null): Theme {
   if (!raw) return DEFAULT_THEME;
   try {
-    const t = JSON.parse(raw) as Partial<Theme>;
-    return { scheme: isScheme(t.scheme) ? t.scheme : "system", accent: isAccent(t.accent) ? t.accent : "emerald" };
+    const t = JSON.parse(raw) as { id?: unknown; scheme?: unknown };
+    if (typeof t.id === "string" && (t.id === AUTO_THEME_ID || THEME_IDS.has(t.id))) return { id: t.id };
+    // The earlier scheme-and-accent form: keep the scheme, drop the accent.
+    if (t.scheme === "dark") return { id: "observer-dark" };
+    if (t.scheme === "light") return { id: "observer-light" };
+    return DEFAULT_THEME;
   } catch {
     return DEFAULT_THEME;
   }
@@ -101,14 +89,14 @@ export function readThemeRaw(): string {
   }
 }
 
-// Puts the choice on <html> as data-scheme / data-accent, which the
-// stylesheet reads; the defaults carry no attribute at all.
+// Puts the choice on <html> as data-theme, which the generated theme rules
+// match; "auto" carries no attribute and gets the base stylesheet.
 export function applyTheme(t: Theme) {
   const el = document.documentElement;
-  if (t.scheme === "system") delete el.dataset.scheme;
-  else el.dataset.scheme = t.scheme;
-  if (t.accent === "emerald") delete el.dataset.accent;
-  else el.dataset.accent = t.accent;
+  if (t.id === AUTO_THEME_ID) delete el.dataset.theme;
+  else el.dataset.theme = t.id;
+  delete el.dataset.scheme;
+  delete el.dataset.accent;
 }
 
 export function saveTheme(t: Theme) {

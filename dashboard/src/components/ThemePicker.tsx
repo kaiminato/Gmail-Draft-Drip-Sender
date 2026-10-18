@@ -1,72 +1,106 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { ACCENTS, SCHEMES, parseTheme, readThemeRaw, saveTheme, subscribePrefs } from "@/lib/prefs";
+import { parseTheme, readThemeRaw, saveTheme, subscribePrefs } from "@/lib/prefs";
+import { AUTO_THEME_ID, OBSERVER_DARK, THEMES, type ThemeDef, type ThemeTokens } from "@/lib/themes";
 
 const serverRaw = () => "";
 
-// The Appearance card: colour scheme and accent, per browser. The choice is
-// applied at once (data attributes on <html>) and again before the first
-// paint on later loads, by the inline script in the layout.
+const FONT_STACK: Record<NonNullable<ThemeDef["font"]>, string> = {
+  sans: "inherit",
+  mono: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  serif: "Georgia, 'Times New Roman', serif",
+};
+
+// A small mock of the dashboard drawn entirely from the theme's own tokens:
+// sidebar, header, two account rows with their pills and status dots. What
+// you see is what the real pages use, so the card is the preview.
+function Preview({ tokens, font, radius = 1 }: { tokens: ThemeTokens; font?: ThemeDef["font"]; radius?: number }) {
+  const r = (px: number) => px * radius + "px";
+  const row = (dot: string, pill: string, pillFg: string, label: string, i: number) => (
+    <div
+      key={i}
+      style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 7px", background: i % 2 ? tokens.panel2 : tokens.panel, borderTop: `1px solid ${tokens.line}` }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: dot, flex: "none" }} />
+      <span style={{ flex: 1, height: 5, borderRadius: r(3), background: tokens.fg, opacity: 0.75 }} />
+      <span style={{ fontSize: 7, lineHeight: "11px", padding: "0 5px", borderRadius: r(99), background: pill, color: pillFg }}>{label}</span>
+      <span style={{ width: 18, height: 5, borderRadius: r(3), background: tokens.muted, opacity: 0.6 }} />
+    </div>
+  );
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        display: "flex", height: 92, overflow: "hidden", borderRadius: r(8), border: `1px solid ${tokens.line}`,
+        background: tokens.bg, color: tokens.fg, fontFamily: font ? FONT_STACK[font] : "inherit",
+      }}
+    >
+      <div style={{ width: 22, background: tokens.panel, borderRight: `1px solid ${tokens.line}`, padding: 6, display: "flex", flexDirection: "column", gap: 5 }}>
+        <span style={{ width: 10, height: 10, borderRadius: r(3), background: tokens.accent }} />
+        <span style={{ width: 10, height: 4, borderRadius: r(2), background: tokens.muted, opacity: 0.6 }} />
+        <span style={{ width: 10, height: 4, borderRadius: r(2), background: tokens.muted, opacity: 0.6 }} />
+        <span style={{ width: 10, height: 4, borderRadius: r(2), background: tokens.muted, opacity: 0.6 }} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 8px" }}>
+          <span style={{ width: 34, height: 6, borderRadius: r(3), background: tokens.fg }} />
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: 7, lineHeight: "12px", padding: "0 6px", borderRadius: r(4), background: tokens.accent, color: tokens.accentFg, fontWeight: 600 }}>Start</span>
+          <span style={{ fontSize: 7, lineHeight: "12px", padding: "0 6px", borderRadius: r(4), background: tokens.danger, color: "#fff", fontWeight: 600 }}>Stop</span>
+        </div>
+        <div style={{ margin: "0 8px", borderRadius: r(6), overflow: "hidden", border: `1px solid ${tokens.line}` }}>
+          {row(tokens.accent, tokens.accent, tokens.accentFg, "Running", 0)}
+          {row(tokens.warn, tokens.panel, tokens.warn, "Offline", 1)}
+          {row(tokens.danger, tokens.panel, tokens.danger, "Blocked", 2)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The Appearance gallery: one card per theme, the current one marked. The
+// choice is applied at once and remembered in this browser; the layout's
+// inline script re-applies it before the first paint on later loads.
 export function ThemePicker() {
   const raw = useSyncExternalStore(subscribePrefs, readThemeRaw, serverRaw);
-  const theme = parseTheme(raw);
+  const current = parseTheme(raw).id;
+
+  const card = (id: string, name: string, tagline: string, tokens: ThemeTokens, font?: ThemeDef["font"], radius?: number) => {
+    const on = current === id;
+    return (
+      <button
+        key={id}
+        type="button"
+        role="radio"
+        aria-checked={on}
+        onClick={() => saveTheme({ id })}
+        className={
+          "group flex flex-col gap-2 rounded-lg border p-2 text-left transition-colors " +
+          (on ? "border-accent bg-accent/10 ring-1 ring-accent" : "border-line hover:border-accent/50 hover:bg-panel-2")
+        }
+      >
+        <Preview tokens={tokens} font={font} radius={radius} />
+        <div className="min-w-0 px-0.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-sm font-medium">{name}</span>
+            {on && <span className="shrink-0 rounded-full bg-accent px-1.5 text-[10px] font-semibold text-accent-fg">current</span>}
+          </div>
+          <div className="truncate text-xs text-muted" title={tagline}>{tagline}</div>
+        </div>
+      </button>
+    );
+  };
 
   return (
-    <div className="space-y-4">
-      <div>
-        <div className="mb-1 text-xs text-muted">Scheme</div>
-        <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Colour scheme">
-          {SCHEMES.map((s) => {
-            const on = theme.scheme === s.value;
-            return (
-              <button
-                key={s.value}
-                type="button"
-                role="radio"
-                aria-checked={on}
-                title={s.hint}
-                onClick={() => saveTheme({ ...theme, scheme: s.value })}
-                className={
-                  "rounded-md border px-2 py-1.5 text-sm transition-colors " +
-                  (on ? "border-accent bg-accent/12 text-fg" : "border-line text-muted hover:bg-panel-2 hover:text-fg")
-                }
-              >
-                {s.label}
-              </button>
-            );
-          })}
-        </div>
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" role="radiogroup" aria-label="Theme">
+        {card(AUTO_THEME_ID, "Auto", "Observer Dark or Light, whichever your system uses.", OBSERVER_DARK)}
+        {THEMES.map((t) => card(t.id, t.name, t.tagline, t.tokens, t.font, t.radius))}
       </div>
-
-      <div>
-        <div className="mb-1 text-xs text-muted">Accent</div>
-        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Accent colour">
-          {ACCENTS.map((a) => {
-            const on = theme.accent === a.value;
-            return (
-              <button
-                key={a.value}
-                type="button"
-                role="radio"
-                aria-checked={on}
-                title={a.label}
-                aria-label={a.label}
-                onClick={() => saveTheme({ ...theme, accent: a.value })}
-                className={
-                  "flex items-center gap-2 rounded-full border py-1 pl-1 pr-2.5 text-xs transition-colors " +
-                  (on ? "border-accent bg-accent/12 text-fg" : "border-line text-muted hover:bg-panel-2 hover:text-fg")
-                }
-              >
-                <span className="h-4 w-4 rounded-full ring-1 ring-black/20" style={{ background: a.swatch }} />
-                {a.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <p className="text-xs text-muted">Saved in this browser only. The rows, pills and buttons take the accent; status colours stay as they are.</p>
+      <p className="text-xs text-muted">
+        {THEMES.length + 1} looks. Saved in this browser only; each computer you watch from picks its own.
+      </p>
     </div>
   );
 }

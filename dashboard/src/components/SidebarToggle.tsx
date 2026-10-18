@@ -42,5 +42,5 @@ export function SidebarBehavior() {
 export const RESTORE_NAV_SCRIPT =
   "document.documentElement.dataset.nav='collapsed';" +
   "try{var t=JSON.parse(localStorage.getItem('theme')||'{}'),d=document.documentElement.dataset;" +
-  "if(t.scheme==='dark'||t.scheme==='light')d.scheme=t.scheme;" +
-  "if(t.accent&&t.accent!=='emerald')d.accent=t.accent}catch(e){}";
+  "if(typeof t.id==='string'&&t.id!=='auto')d.theme=t.id;" +
+  "else if(t.scheme==='dark')d.theme='observer-dark';else if(t.scheme==='light')d.theme='observer-light'}catch(e){}";

@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
-/* Dark first (the operators run it dark); light when the OS asks for it or
-   the Settings page says so. data-scheme and data-accent on <html> carry the
-   choice (src/lib/prefs.ts), set before the first paint by the inline script
-   in the layout. The accent pairs below feed --accent through --a-*, so one
-   block per accent covers both schemes. */
+/* The "Auto" look: dark first (the operators run it dark), light when the OS
+   asks for it. A theme chosen on the Settings page sets data-theme on <html>
+   (src/lib/prefs.ts); its rule, generated from src/lib/themes.ts and inlined
+   by the layout, overrides every token below. The inline script sets the
+   attribute before the first paint, so nothing flashes. */
 :root {
   --bg: #0b0f14;
   --panel: #111823;
@@ -12,8 +12,8 @@
   --line: #1f2a37;
   --fg: #e5e7eb;
   --muted: #8b95a5;
-  --accent: var(--a-dark, #34d399);
-  --accent-fg: var(--a-dark-fg, #052e1c);
+  --accent: #34d399;
+  --accent-fg: #052e1c;
   --warn: #fbbf24;
   --danger: #f87171;
   --info: #60a5fa;
@@ -21,43 +21,21 @@
 }
 
 @media (prefers-color-scheme: light) {
-  :root:not([data-scheme="dark"]) {
+  :root:not([data-theme]) {
     --bg: #f4f6f8;
     --panel: #ffffff;
     --panel-2: #f9fafb;
     --line: #e3e7ec;
     --fg: #111827;
     --muted: #6b7280;
-    --accent: var(--a-light, #059669);
-    --accent-fg: var(--a-light-fg, #ffffff);
+    --accent: #059669;
+    --accent-fg: #ffffff;
     --warn: #d97706;
     --danger: #dc2626;
     --info: #2563eb;
     color-scheme: light;
   }
 }
-
-:root[data-scheme="light"] {
-  --bg: #f4f6f8;
-  --panel: #ffffff;
-  --panel-2: #f9fafb;
-  --line: #e3e7ec;
-  --fg: #111827;
-  --muted: #6b7280;
-  --accent: var(--a-light, #059669);
-  --accent-fg: var(--a-light-fg, #ffffff);
-  --warn: #d97706;
-  --danger: #dc2626;
-  --info: #2563eb;
-  color-scheme: light;
-}
-
-/* Accents: a bright tone on dark, a deeper one on light. Emerald is the
-   default and needs no attribute. */
-:root[data-accent="sky"]    { --a-dark: #60a5fa; --a-dark-fg: #0b1a33; --a-light: #2563eb; --a-light-fg: #ffffff; }
-:root[data-accent="violet"] { --a-dark: #a78bfa; --a-dark-fg: #1e1040; --a-light: #7c3aed; --a-light-fg: #ffffff; }
-:root[data-accent="amber"]  { --a-dark: #fbbf24; --a-dark-fg: #3a2300; --a-light: #d97706; --a-light-fg: #ffffff; }
-:root[data-accent="rose"]   { --a-dark: #fb7185; --a-dark-fg: #3f0a16; --a-light: #e11d48; --a-light-fg: #ffffff; }
 
 @theme inline {
   --color-bg: var(--bg);
@@ -71,8 +49,15 @@
   --color-warn: var(--warn);
   --color-danger: var(--danger);
   --color-info: var(--info);
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  /* A theme may swap the interface face (--font-ui) and scale the corners. */
+  --font-sans: var(--font-ui, var(--font-geist-sans)), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+  --radius-xs: calc(0.125rem * var(--radius-scale, 1));
+  --radius-sm: calc(0.25rem * var(--radius-scale, 1));
+  --radius-md: calc(0.375rem * var(--radius-scale, 1));
+  --radius-lg: calc(0.5rem * var(--radius-scale, 1));
+  --radius-xl: calc(0.75rem * var(--radius-scale, 1));
+  --radius-2xl: calc(1rem * var(--radius-scale, 1));
 }
 
 html, body { height: 100%; }
