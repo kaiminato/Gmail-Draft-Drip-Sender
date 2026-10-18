@@ -89,7 +89,9 @@ const DEFAULTS = {
   serverLastOkAt: 0,
   serverLastError: '',
   cycleStartedAt: 0,
-  gmailMissingSince: 0     // when a running account was first seen without a Gmail tab
+  gmailMissingSince: 0,    // when a running account was first seen without a Gmail tab
+  gmailWatchLoggedAt: 0,   // last time the tab watchdog wrote its status line
+  challengeSolveAt: 0      // last time a browser-check window was opened
 };
 
 let busy = false;
@@ -867,7 +869,6 @@ function scheduleHeartbeatSoon() {
 // challenge opens the dashboard in a background tab, waits for the checkpoint
 // to clear, closes the tab and beats again.
 let challengeSolve = null;
-let lastChallengeSolveAt = 0;
 
 function isChallenge(r) {
   const how = (r.headers.get('x-vercel-mitigated') || '').toLowerCase();
@@ -878,11 +879,14 @@ function isChallenge(r) {
 
 function solveChallenge() {
   if (challengeSolve) return challengeSolve;
-  if (Date.now() - lastChallengeSolveAt < CHALLENGE_SOLVE_EVERY_MS) return Promise.resolve(false);
-  lastChallengeSolveAt = Date.now();
   const nap = (ms) => new Promise((res) => setTimeout(res, ms));
   const url = CFG.apiBase.replace(/\/+$/, '') + '/login';
   challengeSolve = (async () => {
+    // The guard lives in storage: the worker sleeps between heartbeats, and
+    // a variable started from zero every time, so a window opened per beat.
+    const last = Number((await getState()).challengeSolveAt) || 0;
+    if (Date.now() - last < CHALLENGE_SOLVE_EVERY_MS) return false;
+    await setState({ challengeSolveAt: Date.now() });
     let win = null;
     try {
       // A small window of its own, in front. In a background tab the
@@ -1085,8 +1089,17 @@ function scheduleGmailTabOpen() {
 
 async function openGmailTabIfMissing(why) {
   const st = await getState();
-  if (!st.running || busy) return false;
-  if (await findGmailTab()) return false;
+  if (!st.running) return false;
+  if (busy) {
+    await log('info', 'Gmail tab not opened ' + why + ': a send is in progress.');
+    return false;
+  }
+  const found = await findGmailTab();
+  if (found) {
+    await log('info', 'Gmail tab not opened ' + why + ': one exists (' + String(found.url || found.pendingUrl || '?').slice(0, 60) +
+      ', ' + found.status + (found.discarded ? ', discarded' : '') + ', window ' + found.windowId + ').');
+    return false;
+  }
   try {
     // In the background: the send cycle brings it forward when it needs to,
     // and a profile set to stay out of the way keeps staying out of the way.
@@ -1102,7 +1115,17 @@ async function openGmailTabIfMissing(why) {
 async function watchGmailTab() {
   const st = await getState();
   const since = Number(st.gmailMissingSince) || 0;
-  if (!st.running || await findGmailTab()) {
+  const tab = st.running ? await findGmailTab() : null;
+  // Every few minutes, say what the watchdog sees, so a tab that never
+  // appears can be explained from the log alone.
+  if (st.running && !tab && Date.now() - (Number(st.gmailWatchLoggedAt) || 0) > 5 * 60000) {
+    await setState({ gmailWatchLoggedAt: Date.now() });
+    await log('info', 'Watchdog: no Gmail tab' +
+      (since ? ' since ' + new Date(since).toLocaleTimeString() : ' (just noticed)') +
+      '; running ' + st.running + ', busy ' + busy + '. One is opened after ' +
+      Math.round(GMAIL_MISSING_MS / 60000) + ' min without.');
+  }
+  if (!st.running || tab) {
     if (since) await setState({ gmailMissingSince: 0 });
     return;
   }
