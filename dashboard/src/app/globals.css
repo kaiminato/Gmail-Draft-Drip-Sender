@@ -75,10 +75,10 @@ select, input[type="number"], input[type="text"], input[type="email"], input[typ
 }
 input[type="checkbox"] { accent-color: var(--accent); }
 
-/* Sidebar collapsed to its icons: data-nav on <html> is set by SidebarToggle
-   and restored from localStorage before the first paint. On narrow screens
-   the sidebar is icon-only regardless. */
-html[data-nav="collapsed"] aside.sidebar { width: 3.5rem; padding-left: 0.5rem; padding-right: 0.5rem; }
+/* Sidebar collapsed to its icons: data-nav on <html> is "collapsed" at first
+   paint and flips to "open" on a click on the sidebar (SidebarBehavior). On
+   narrow screens the sidebar is icon-only regardless. */
+html[data-nav="collapsed"] aside.sidebar { width: 3.5rem; padding-left: 0.5rem; padding-right: 0.5rem; cursor: pointer; }
 html[data-nav="collapsed"] .nav-label { display: none !important; }
 html[data-nav="collapsed"] .nav-icon { display: inline !important; }
 
@@ -89,3 +89,9 @@ tbody tr.row-low > td { background-color: color-mix(in srgb, var(--warn) 10%, tr
 tbody tr.row-zero > td { background-color: color-mix(in srgb, var(--danger) 12%, transparent); }
 tbody tr.row-low:hover > td { background-color: color-mix(in srgb, var(--warn) 16%, transparent); }
 tbody tr.row-zero:hover > td { background-color: color-mix(in srgb, var(--danger) 18%, transparent); }
+
+/* The row a notification pointed at: tinted, with a bar on the left, and the
+   first cell carries the ring so it reads as one highlighted row. */
+tbody tr.row-highlight > td { background-color: color-mix(in srgb, var(--accent) 16%, transparent); }
+tbody tr.row-highlight:hover > td { background-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+tbody tr.row-highlight > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }

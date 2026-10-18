@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/admin";
 import { BUILTIN_ADMIN_EMAILS, extraAdminEmails, norm, passwordIsDefault } from "@/lib/admins";
 import { btn, btnDanger, btnPrimary, Card, input, PageHeader, td, th } from "@/components/ui";
+import { DesktopAlertsSetting } from "@/components/AlertWatcher";
 import { addAdmin, changePassword, removeAdmin } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +40,10 @@ export default async function SettingsPage({
       {error && (
         <p className="rounded-md bg-danger/10 p-3 text-sm text-danger">{error}</p>
       )}
+
+      <Card title="Notifications">
+        <DesktopAlertsSetting />
+      </Card>
 
       <Card title="Admin password">
         {usingDefault && (
