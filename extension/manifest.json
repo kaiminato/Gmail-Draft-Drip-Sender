@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Gmail Draft Drip Sender",
-  "version": "1.6.17",
+  "version": "1.6.18",
   "description": "Sends the drafts sitting in your Gmail Drafts folder one at a time, spaced out by a random interval, and reports to a central dashboard.",
   "permissions": [
     "storage",

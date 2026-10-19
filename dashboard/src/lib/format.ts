@@ -77,6 +77,7 @@ export function stopReasonLabel(reason: string | null | undefined): string {
     case "blocked": return "blocked by Gmail";
     case "failures": return "too many failures";
     case "daily_cap": return "target reached for today";
+    case "signin": return "needs Gmail sign-in";
     default: return reason || "";
   }
 }

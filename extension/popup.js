@@ -137,9 +137,15 @@ function renderStatus() {
   const pill = $('tabPill');
   if (state.gmailTabs > 0) {
     pill.textContent = state.gmailTabs === 1 ? 'Gmail open' : state.gmailTabs + ' Gmail tabs';
+    pill.title = '';
     pill.classList.remove('bad');
+  } else if (state.gmailSignedOut) {
+    pill.textContent = 'Gmail: sign-in needed';
+    pill.title = 'Gmail sent this profile to its sign-in page. Sign in there; sending resumes by itself.';
+    pill.classList.add('bad');
   } else {
     pill.textContent = 'no Gmail tab';
+    pill.title = 'One is opened within a few minutes.';
     pill.classList.add('bad');
   }
 
