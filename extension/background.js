@@ -118,7 +118,7 @@ function getVersion() {
 // on the VPS: a 1.6.11 manifest with the 1.6.6 worker.) So the code carries
 // its own version, and a mismatch reloads the extension. The two are bumped
 // together; extension/test/version.test.js checks that.
-const CODE_VERSION = '1.6.15';
+const CODE_VERSION = '1.6.16';
 
 async function ensureFreshCode() {
   const manifest = getVersion();
@@ -547,6 +547,43 @@ const COUNT_RETRY_MS = 5 * 60000;
 const COUNT_EVERY_STOPPED_MS = 10 * 60000;
 const COUNT_EVERY_RUNNING_MS = 30 * 60000;
 
+// A run parked on an empty folder, or one whose planned times ran out while
+// it was empty, picks the day up again with a plan for what is left of it.
+async function draftsBack(st, count) {
+  const target = st.dayPlan && st.dayPlan.date === todayKey() ? st.dayPlan.dayTarget : 0;
+  const parked = st.stopReason === 'empty' || (st.stopReason === 'daily_cap' && st.sentToday < target);
+  if (count > 0 && st.running && parked && !busy) {
+    await setState({ stopReason: '' });
+    await ensurePlan(true);
+    await scheduleNextPlanned('Drafts are back (' + count + ').');
+  }
+}
+
+// The cheap count: Gmail's own Drafts badge in its sidebar, readable from
+// any view without navigating. Taken before every heartbeat and a few
+// seconds after each send, so the dashboard's drafts-left follows the folder
+// within a minute. The full count below stays for when the badge is not
+// there (a page that just loaded, or no badge at all).
+let draftBadgeInFlight = null;
+function refreshDraftBadge() {
+  if (draftBadgeInFlight) return draftBadgeInFlight;
+  draftBadgeInFlight = (async () => {
+    const st = await getState();
+    if (busy) return;
+    const tab = await findGmailTab();
+    if (!tab || tab.discarded || tab.status !== 'complete') return;
+    let r = null;
+    try { r = await chrome.tabs.sendMessage(tab.id, { type: 'DRAFTS_BADGE' }); } catch (_) { return; }
+    if (!r || !r.ok || typeof r.count !== 'number') return;
+    if (r.count === st.remainingCount) return;
+    await setState({ remainingCount: r.count, remainingBucket: bucketOf(r.count), draftCountAt: Date.now() });
+    await log('info', 'Drafts left: ' + r.count + '.');
+    await draftsBack(st, r.count);
+    scheduleHeartbeatSoon();
+  })().catch(() => {}).finally(() => { draftBadgeInFlight = null; });
+  return draftBadgeInFlight;
+}
+
 // Keeps the drafts-left figure current without a send: soon when there is
 // none (a fresh install, an update from a build that only reported a range)
 // or a 0 sits on a running account, every ten minutes on a stopped account
@@ -576,16 +613,7 @@ function refreshDraftCount() {
     if (r.count === st.remainingCount) return;
     await setState({ remainingCount: r.count, remainingBucket: bucketOf(r.count) });
     await log('info', 'Drafts left: ' + r.count + '.');
-    // A run parked on an empty folder, or one whose planned times ran out
-    // while it was empty, picks the day up again with a plan for what is
-    // left of it.
-    const target = st.dayPlan && st.dayPlan.date === todayKey() ? st.dayPlan.dayTarget : 0;
-    const parked = st.stopReason === 'empty' || (st.stopReason === 'daily_cap' && st.sentToday < target);
-    if (r.count > 0 && st.running && parked && !busy) {
-      await setState({ stopReason: '' });
-      await ensurePlan(true);
-      await scheduleNextPlanned('Drafts are back (' + r.count + ').');
-    }
+    await draftsBack(st, r.count);
     scheduleHeartbeatSoon();
   })().catch(() => {}).finally(() => { draftCountInFlight = null; });
   return draftCountInFlight;
@@ -661,6 +689,9 @@ async function runCycle(manual) {
     if (typeof res.remaining === 'number' && res.remaining >= 0) {
       await setState({ remainingCount: res.remaining, remainingBucket: bucketOf(res.remaining) });
     }
+    // Gmail updates its badge a moment after a send; read it then, so the
+    // figure the dashboard gets is the folder's own, not an estimate.
+    setTimeout(() => refreshDraftBadge().catch(() => {}), 4000);
 
     if (res.ok && res.code === 'SENT') {
       st = await rollDailyCounter(await getState());
@@ -1022,8 +1053,10 @@ function sendHeartbeat(trigger) {
   heartbeatInFlight = (async () => {
     // Fill in the address before reporting, if a loaded Gmail tab can tell us.
     try { await refreshAccountEmail(); } catch (_) {}
-    // Likewise the drafts-left figure while there is none. Not awaited: it
-    // can take a while, and it beats again on its own once it has a number.
+    // The drafts-left figure: the badge is quick and read every beat; the
+    // full count is not awaited (it can take a while) and beats again on
+    // its own once it has a number.
+    try { await refreshDraftBadge(); } catch (_) {}
     refreshDraftCount();
     const body = await collectHeartbeat(trigger);
     await setState({ serverLastTryAt: Date.now() });
