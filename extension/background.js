@@ -91,7 +91,8 @@ const DEFAULTS = {
   cycleStartedAt: 0,
   retryDraftId: '',        // the draft the last cycle opened but did not finish sending
   retryDraftSubject: '',
-  gmailMissingSince: 0,    // when a running account was first seen without a Gmail tab
+  gmailSignedOut: false,   // Gmail sent the tab to accounts.google.com; no new tab until signed in again
+  gmailMissingSince: 0,    // when the profile was first seen without a Gmail tab
   gmailWatchLoggedAt: 0,   // last time the tab watchdog wrote its status line
   challengeSolveAt: 0      // last time a browser-check window was opened
 };
@@ -120,7 +121,7 @@ function getVersion() {
 // on the VPS: a 1.6.11 manifest with the 1.6.6 worker.) So the code carries
 // its own version, and a mismatch reloads the extension. The two are bumped
 // together; extension/test/version.test.js checks that.
-const CODE_VERSION = '1.6.17';
+const CODE_VERSION = '1.6.18';
 
 async function ensureFreshCode() {
   const manifest = getVersion();
@@ -466,11 +467,28 @@ async function bringToFront(tab) {
   await sleep(1200);
 }
 
+// A Google sign-in page in this profile: Gmail sent its tab there because the
+// session expired. While one is open, no Gmail tab is opened, since it would
+// only land on the same page, a minute apart, for ever.
+async function findSignInTab() {
+  let tabs = [];
+  try { tabs = await chrome.tabs.query({ url: '*://accounts.google.com/*' }); } catch (_) {}
+  return tabs[0] || null;
+}
+
+function tabHost(t) {
+  try { return new URL((t && (t.url || t.pendingUrl)) || '').hostname || 'accounts.google.com'; } catch (_) { return 'accounts.google.com'; }
+}
+
 // Finds, or opens, a Gmail tab and brings it to the front fully loaded.
 async function acquireGmailTab() {
   let tab = await findGmailTab();
   let created = false;
   if (!tab) {
+    const signin = await findSignInTab();
+    if (signin) {
+      return { error: 'NOT_SIGNED_IN', message: 'Gmail is asking for a sign-in (' + tabHost(signin) + ' is open instead of Gmail).' };
+    }
     try {
       tab = await createGmailTab(true);
     } catch (e) {
@@ -497,9 +515,10 @@ async function acquireGmailTab() {
   if (!/^https?:\/\/mail\.google\.com\//i.test(url)) {
     let host = url;
     try { host = new URL(url).hostname; } catch (_) {}
+    // The tab is left where it is: it is the sign-in page someone has to use.
     return {
       error: 'NOT_SIGNED_IN',
-      message: 'The Gmail tab went to ' + (host || 'another page') + ' instead of Gmail - is this profile signed in?'
+      message: 'The Gmail tab went to ' + (host || 'another page') + ' instead of Gmail - this profile needs to sign in again.'
     };
   }
 
@@ -788,6 +807,15 @@ async function tick(manual) {
         await log(res.code === 'NO_DRAFTS' ? 'ok' : 'warn', what + ' - waiting for new drafts, checking every few minutes.');
         notify('Waiting for drafts', what + '. Sending resumes on its own when drafts appear.');
       }
+      break;
+    }
+    case 'NOT_SIGNED_IN': {
+      // Retrying a minute later would only open another Gmail tab that lands
+      // on the same sign-in page. Stop; the tab watchdog starts the run again
+      // by itself once a Gmail tab is back.
+      await setState({ gmailSignedOut: true });
+      await stop('signin', 'Gmail needs a sign-in - stopped until this profile is signed in again; sending resumes on its own after that.', 'err');
+      notify('Gmail sign-in needed', 'This profile was signed out of Gmail. Sign in again and sending resumes by itself.');
       break;
     }
     case 'NO_RECIPIENT':
@@ -1204,8 +1232,6 @@ function scheduleGmailTabOpen() {
 }
 
 async function openGmailTabIfMissing(why) {
-  const st = await getState();
-  if (!st.running) return false;
   if (busy) {
     await log('info', 'Gmail tab not opened ' + why + ': a send is in progress.');
     return false;
@@ -1216,6 +1242,7 @@ async function openGmailTabIfMissing(why) {
       ', ' + found.status + (found.discarded ? ', discarded' : '') + ', window ' + found.windowId + ').');
     return false;
   }
+  if (await findSignInTab()) return false; // the watchdog has said why
   try {
     // In the background: the send cycle brings it forward when it needs to,
     // and a profile set to stay out of the way keeps staying out of the way.
@@ -1228,22 +1255,45 @@ async function openGmailTabIfMissing(why) {
   }
 }
 
+// Runs on every heartbeat, running or stopped: an enabled extension keeps a
+// Gmail tab open so the address is known, the drafts are counted and a start
+// from the dashboard has somewhere to go. The one exception is a profile
+// Gmail has sent to its sign-in page: another Gmail tab would land there too,
+// so none is opened until someone signs in, and a run stopped for that
+// reason is started again by itself the moment Gmail is back.
 async function watchGmailTab() {
   const st = await getState();
   const since = Number(st.gmailMissingSince) || 0;
-  const tab = st.running ? await findGmailTab() : null;
+  const tab = await findGmailTab();
+  if (tab) {
+    if (st.gmailSignedOut) {
+      await setState({ gmailSignedOut: false });
+      await log('ok', 'Gmail is signed in again.');
+      const cur = await getState();
+      if (!cur.running && cur.stopReason === 'signin') await start('auto');
+      scheduleHeartbeatSoon();
+    }
+    if (since) await setState({ gmailMissingSince: 0 });
+    return;
+  }
+  const signin = await findSignInTab();
+  if (signin) {
+    if (!st.gmailSignedOut) {
+      await setState({ gmailSignedOut: true });
+      await log('warn', 'Gmail is asking for a sign-in (' + tabHost(signin) + '). No Gmail tab will be opened until this profile is signed in again.');
+      scheduleHeartbeatSoon();
+    }
+    if (since) await setState({ gmailMissingSince: 0 });
+    return;
+  }
   // Every few minutes, say what the watchdog sees, so a tab that never
   // appears can be explained from the log alone.
-  if (st.running && !tab && Date.now() - (Number(st.gmailWatchLoggedAt) || 0) > 5 * 60000) {
+  if (Date.now() - (Number(st.gmailWatchLoggedAt) || 0) > 5 * 60000) {
     await setState({ gmailWatchLoggedAt: Date.now() });
     await log('info', 'Watchdog: no Gmail tab' +
       (since ? ' since ' + new Date(since).toLocaleTimeString() : ' (just noticed)') +
       '; running ' + st.running + ', busy ' + busy + '. One is opened after ' +
       Math.round(GMAIL_MISSING_MS / 60000) + ' min without.');
-  }
-  if (!st.running || tab) {
-    if (since) await setState({ gmailMissingSince: 0 });
-    return;
   }
   if (!since) { await setState({ gmailMissingSince: Date.now() }); return; }
   if (Date.now() - since < GMAIL_MISSING_MS) return;
@@ -1285,7 +1335,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await setBadge(st.running);
   await ensureHeartbeatAlarm();
   await resumeIfNeeded('Browser restarted.');
-  if (st.running) scheduleGmailTabOpen();
+  scheduleGmailTabOpen();
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -1298,7 +1348,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   // An update clears the alarms; a running account carries on from here.
   await resumeIfNeeded('Extension updated to v' + getVersion() + '; carrying on.');
   // A browser restart with changed files arrives here, not at onStartup.
-  if (st.running) scheduleGmailTabOpen();
+  scheduleGmailTabOpen();
   sendHeartbeat('boot').catch(() => {});
 });
 
