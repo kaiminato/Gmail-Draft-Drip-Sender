@@ -660,7 +660,7 @@
         const usable = all.filter((r) => !skipIds.has(rowInfo(r).id));
         if (!usable.length) {
           return {
-            ok: false, code: 'ALL_SKIPPED', remaining: all.length,
+            ok: false, code: 'ALL_SKIPPED', remaining: remainingAfter(all.length, 0),
             message: 'All ' + all.length + ' remaining draft(s) were skipped as unsendable.'
           };
         }
@@ -709,7 +709,7 @@
         sendBtn = null;
         await sleep(500);
         return {
-          ok: false, code: 'TOO_MANY_RECIPIENTS', draft: info, remaining: all.length,
+          ok: false, code: 'TOO_MANY_RECIPIENTS', draft: info, remaining: remainingAfter(all.length, 0),
           recipientCount: recipients.length,
           message: 'Draft "' + info.subject + '" is addressed to ' + recipients.length + ' recipients - not sent, ' +
             'skipped from now on. Check the Drafts folder: a draft like this may have been planted by someone else with access to the account.'
@@ -751,7 +751,7 @@
           realClick(dialogButton(outcome.dialog, ['ok', 'cancel'], /^(ok|cancel|close)$/i));
           await sleep(500);
           return {
-            ok: false, code: 'NO_RECIPIENT', draft: info, remaining: all.length,
+            ok: false, code: 'NO_RECIPIENT', draft: info, remaining: remainingAfter(all.length, 0),
             message: 'Draft "' + info.subject + '" has no recipient - skipping it from now on.'
           };
         }
@@ -771,7 +771,7 @@
         sendBtn = null; // compose closed => Gmail accepted the send
         return {
           ok: true, code: 'SENT', draft: info,
-          recipients, remaining: Math.max(0, all.length - 1),
+          recipients, remaining: remainingAfter(all.length, -1),
           message: 'Sent "' + info.subject + '"' + (recipients.length ? ' to ' + recipients.join(', ') : '') + openNote
         };
       }
@@ -809,7 +809,7 @@
       if (sent === true) {
         return {
           ok: true, code: 'SENT', late: true, draft: info,
-          recipients, remaining: Math.max(0, all.length - 1),
+          recipients, remaining: remainingAfter(all.length, -1),
           message: 'Sent "' + info.subject + '"' + (recipients.length ? ' to ' + recipients.join(', ') : '') + openNote +
             ' (confirmed after the fact, ' + attempts + ' attempt' + (attempts === 1 ? '' : 's') + ')'
         };
@@ -899,6 +899,16 @@
     return !!document.querySelector('div[role="main"]') && !!document.querySelector('div[role="navigation"]');
   }
 
+  // Drafts left after a cycle. The list shows one page of the folder (50
+  // rows), so counting rows under-reports a big folder and the number then
+  // sat wrong on the dashboard until the next full count; the sidebar badge
+  // counts the whole folder, so it wins whenever it is there.
+  function remainingAfter(listRowsCount, delta) {
+    const nav = draftsNavCount();
+    const base = typeof nav === 'number' && nav >= listRowsCount ? nav : listRowsCount;
+    return Math.max(0, base + delta);
+  }
+
   const onMessage = (msg, _sender, sendResponse) => {
     if (!msg || !msg.type) return;
     if (msg.type === 'PING') { sendResponse({ ok: true, version: SCRIPT_VERSION }); return; }
@@ -919,6 +929,12 @@
       countDrafts(msg).then(sendResponse).catch((e) =>
         sendResponse({ ok: false, code: 'ERROR', message: String((e && e.message) || e) }));
       return true;
+    }
+    if (msg.type === 'DRAFTS_BADGE') {
+      // The folder's own count from Gmail's sidebar badge, readable from any
+      // view without going anywhere; null while the page cannot be trusted.
+      sendResponse({ ok: true, count: draftsNavCount() });
+      return;
     }
   };
 
