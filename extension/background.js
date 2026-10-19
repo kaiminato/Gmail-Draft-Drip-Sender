@@ -89,6 +89,8 @@ const DEFAULTS = {
   serverLastOkAt: 0,
   serverLastError: '',
   cycleStartedAt: 0,
+  retryDraftId: '',        // the draft the last cycle opened but did not finish sending
+  retryDraftSubject: '',
   gmailMissingSince: 0,    // when a running account was first seen without a Gmail tab
   gmailWatchLoggedAt: 0,   // last time the tab watchdog wrote its status line
   challengeSolveAt: 0      // last time a browser-check window was opened
@@ -118,7 +120,7 @@ function getVersion() {
 // on the VPS: a 1.6.11 manifest with the 1.6.6 worker.) So the code carries
 // its own version, and a mismatch reloads the extension. The two are bumped
 // together; extension/test/version.test.js checks that.
-const CODE_VERSION = '1.6.16';
+const CODE_VERSION = '1.6.17';
 
 async function ensureFreshCode() {
   const manifest = getVersion();
@@ -659,6 +661,7 @@ async function runCycle(manual) {
       res = await chrome.tabs.sendMessage(tab.id, {
         type: 'SEND_ONE_DRAFT',
         order: st.order,
+        preferId: st.retryDraftId || '',
         skipIds: st.skipIds,
         restoreView: st.restoreView,
         humanize: st.naturalPacing,
@@ -700,7 +703,9 @@ async function runCycle(manual) {
         totalSent: st.totalSent + 1,
         consecutiveFailures: 0,
         lastSendAt: Date.now(),
-        stopReason: ''
+        stopReason: '',
+        retryDraftId: '',
+        retryDraftSubject: ''
       });
       const left = typeof res.remaining === 'number' ? ' (' + res.remaining + ' left)' : '';
       await log(res.late ? 'warn' : 'ok', res.message + left);
@@ -717,6 +722,7 @@ async function runCycle(manual) {
       const cur = await getState();
       const id = res.draft && res.draft.id;
       if (id && !cur.skipIds.includes(id)) await setState({ skipIds: [...cur.skipIds, id] });
+      await setState({ retryDraftId: '', retryDraftSubject: '' }); // skipped, not to be retried
       await log(res.code === 'TOO_MANY_RECIPIENTS' ? 'err' : 'warn', res.message);
       if (res.code === 'TOO_MANY_RECIPIENTS') {
         // Worth a line on the dashboard and a notification: on a compromised
@@ -725,7 +731,7 @@ async function runCycle(manual) {
         notify('Suspicious draft skipped', 'A draft with ' + (res.recipientCount || 'many') + ' recipients was not sent. Check the Drafts folder and the account\'s security.');
       }
     } else if (res.code === 'NO_DRAFTS') {
-      await setState({ remainingBucket: 'none', remainingCount: 0 });
+      await setState({ remainingBucket: 'none', remainingCount: 0, retryDraftId: '', retryDraftSubject: '' });
       await log('info', res.message);
     } else {
       await log(res.code === 'ALL_SKIPPED' ? 'info' : 'warn',
@@ -1311,6 +1317,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'ACCOUNT_DETECTED':
       // From the content script, once it has read the signed-in address.
       if (sender && sender.tab && msg.email) rememberEmail(msg.email).catch(() => {});
+      sendResponse({ ok: true });
+      return;
+
+    case 'DRAFT_PICKED':
+      // From the content script, just before it presses Send: remembered so
+      // a run that dies mid-send (tab closed, Chrome restarted, worker gone)
+      // starts its next cycle with this draft, not another random one. A
+      // confirmed send, or a skip, clears it.
+      if (sender && sender.tab && typeof msg.id === 'string') {
+        setState({ retryDraftId: msg.id, retryDraftSubject: String(msg.subject || '').slice(0, 200) }).catch(() => {});
+      }
       sendResponse({ ok: true });
       return;
 

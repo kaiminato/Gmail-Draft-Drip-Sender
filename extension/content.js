@@ -353,6 +353,21 @@
     return out;
   }
 
+  // A compose collapsed to its title bar at the bottom of the page: the
+  // dialog and its fields are still in the DOM, only the Send button is not
+  // live. Clicking the title bar restores it. True once a Send button is
+  // live again; false when there is no such compose or it would not open.
+  async function expandMinimisedCompose() {
+    const dialog = Array.from(document.querySelectorAll('div[role="dialog"]'))
+      .find((d) => d.querySelector('[name="subjectbox"], [name="to"], input[name="subject"]'));
+    if (!dialog) return false;
+    const bar = dialog.querySelector('.Hy') || dialog.querySelector('[role="heading"]') || dialog.firstElementChild;
+    if (!bar) return false;
+    try { realClick(bar); } catch (_) { return false; }
+    const btn = await waitFor(() => findSendButtons()[0], 4000, 250);
+    return !!btn;
+  }
+
   function composeRoot(sendBtn) {
     let el = sendBtn;
     for (let i = 0; i < 15 && el && el !== document.body; i++) {
@@ -600,8 +615,9 @@
     // A compose window that is already open is a draft left unsent: a send
     // that did not take last cycle, or one somebody opened and walked away
     // from. It goes out first; another draft is picked only when there is
-    // none. A minimised compose has no live Send button and does not count.
-    const leftOpen = findSendButtons().length > 0;
+    // none. A compose minimised to its title bar is restored first.
+    let leftOpen = findSendButtons().length > 0;
+    if (!leftOpen) leftOpen = await expandMinimisedCompose();
 
     const originalHash = location.hash;
     let sendBtn = null;
@@ -665,13 +681,20 @@
           };
         }
 
-        // Gmail lists drafts newest-first, so the oldest one sits at the bottom.
-        let row;
-        if (order === 'newest') row = usable[0];
-        else if (order === 'random') row = usable[Math.floor(Math.random() * usable.length)];
-        else row = usable[usable.length - 1];
+        // The draft a previous run opened but never got to send (it reported
+        // the id before sending, see DRAFT_PICKED) comes first, whatever the
+        // order says; it is back in the list as an ordinary row.
+        let row = opts.preferId ? usable.find((r) => rowInfo(r).id === opts.preferId) || null : null;
+        const retried = !!row;
+        if (!row) {
+          // Gmail lists drafts newest-first, so the oldest one sits at the bottom.
+          if (order === 'newest') row = usable[0];
+          else if (order === 'random') row = usable[Math.floor(Math.random() * usable.length)];
+          else row = usable[usable.length - 1];
+        }
 
         info = rowInfo(row);
+        if (retried) info.retried = true;
         const before = new Set(findSendButtons());
 
         await glanceAtList(row);
@@ -692,12 +715,18 @@
 
         root = composeRoot(sendBtn);
       }
+      // Say which draft this is before touching Send: if the run dies here,
+      // the next one starts with this draft instead of another random one.
+      try {
+        chrome.runtime.sendMessage({ type: 'DRAFT_PICKED', id: String(info.id || ''), subject: String(info.subject || '') }, () => void chrome.runtime.lastError);
+      } catch (_) {}
+
       // Doubles as read-through time and as the beat Gmail needs to hydrate
       // the recipients and body before the send is valid.
       await pause(1400, 4200);
 
       const recipients = recipientsOf(root);
-      const openNote = info.leftOpen ? ' (was left open)' : '';
+      const openNote = info.leftOpen ? ' (was left open)' : info.retried ? ' (left unsent last time)' : '';
 
       // This sender exists for one-to-one mail. A draft addressed to dozens of
       // people is not that, and on a compromised account it is exactly what an
