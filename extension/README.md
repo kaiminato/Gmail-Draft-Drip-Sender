@@ -374,10 +374,12 @@ extension reload is still the reliable move.
   announced with a notification. Check the Drafts folder and the account's security.
 - **Drafts with no recipient** are skipped and remembered, so it doesn't jam on them. The
   count shows in the popup; **Clear skips** makes it retry them.
-- **A compose window left open** — a draft whose send did not take last time, or one
-  somebody opened and walked away from — is sent first at the next send time, before
-  another draft is picked. So never leave your own half-written mail open in a profile
-  that is running.
+- **A draft left unsent is sent first.** A compose window still open from last time, or
+  one minimised to its title bar, is restored and sent before any other draft is picked.
+  And the sender notes which draft it opened just before pressing Send, so if the run
+  dies at that moment (tab closed, Chrome restarted, worker gone) the next cycle starts
+  with that same draft, now back in the list, rather than another random one. So never
+  leave your own half-written mail open in a profile that is running.
 - **Drafts with no subject** are sent; the "send without a subject?" prompt is confirmed.
 - **Sends confirmed late** appear in amber rather than green, worded "confirmed after the
   fact". That means the tab was slow, not that anything went wrong.
