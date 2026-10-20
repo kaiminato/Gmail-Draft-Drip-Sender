@@ -12,12 +12,15 @@ export function ManagerFilter({
   managers,
   className = "",
   keep = "",
+  path = "/",
 }: {
   value: string;
   managers: { id: string; name: string }[];
   className?: string;
   // Query string to carry along, such as the current sort.
   keep?: string;
+  // The page the filter belongs to.
+  path?: string;
 }) {
   const router = useRouter();
   const special = value === "" || value === "none";
@@ -29,7 +32,7 @@ export function ManagerFilter({
       onChange={(e) => {
         const v = e.currentTarget.value;
         const q = [v ? "manager=" + encodeURIComponent(v) : "", keep].filter(Boolean).join("&");
-        router.push(q ? "/?" + q : "/");
+        router.push(q ? path + "?" + q : path);
       }}
     >
       <option value="" style={DIM}>All managers</option>

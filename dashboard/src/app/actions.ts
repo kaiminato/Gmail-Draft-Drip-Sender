@@ -145,6 +145,18 @@ export async function deleteAccount(form: FormData) {
   refresh();
 }
 
+/* ---------- sent mail log ---------- */
+
+// Removes rows from the sent-mail log only; the events behind the
+// statistics are untouched.
+export async function deleteSentMail(form: FormData) {
+  await requireAdmin();
+  const ids = form.getAll("ids").filter((v): v is string => typeof v === "string" && v.length > 0);
+  if (!ids.length) return;
+  await db.delete(schema.sentMail).where(inArray(schema.sentMail.id, ids));
+  revalidatePath("/sent");
+}
+
 export async function deleteAccounts(form: FormData) {
   await requireAdmin();
   const ids = form.getAll("ids").filter((v): v is string => typeof v === "string" && v.length > 0);

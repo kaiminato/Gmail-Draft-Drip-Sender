@@ -28,6 +28,13 @@ What it shows and does:
   use the floating bar to start them on a tier (**few** 10–20, **less** 20–40, **normal**
   40–70, **many** 70–110 a day) or stop them; with nothing ticked the same buttons act on
   the whole filtered list. Each row also has its own Start ▾ / Switch ▾ and Stop.
+- **Sent** — the sent-mail log: every message as its extension reported it, newest first,
+  with sender, recipient, subject, and the manager and volume tier the account had at that
+  moment (frozen then, so re-assigning an account does not rewrite history). Filter by
+  manager and free text, page through by 100, tick rows (or "Select all on this page") and
+  delete them. Deleting here removes log rows only; the statistics, built from the events
+  table, keep their numbers. The log also outlives an account: removing one leaves its
+  rows with the address and no link.
 - **Managers** — labels you create and assign accounts to. Managers do not log in.
 - **Stats** — sends today / this week / this month / all time, blocks, bounces and failed
   cycles, split by manager and by account, plus a 30-day daily chart.

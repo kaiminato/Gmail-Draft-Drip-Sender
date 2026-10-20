@@ -12,12 +12,17 @@ export function SearchFilter({
   keep = "",
   className = "",
   placeholder = "Filter by email, manager, device…",
+  path = "/",
+  label = "Filter accounts",
 }: {
   value: string;
   // Query string to carry along: the manager filter and the sort.
   keep?: string;
   className?: string;
   placeholder?: string;
+  // The page the filter belongs to; the address is rewritten there.
+  path?: string;
+  label?: string;
 }) {
   const router = useRouter();
   const [text, setText] = useState(value);
@@ -36,7 +41,7 @@ export function SearchFilter({
     if (q === last.current) return;
     last.current = q;
     const parts = [keep, q ? "q=" + encodeURIComponent(q) : ""].filter(Boolean).join("&");
-    router.replace(parts ? "/?" + parts : "/");
+    router.replace(parts ? path + "?" + parts : path);
   };
 
   const onChange = (q: string) => {
@@ -64,7 +69,7 @@ export function SearchFilter({
           }
         }}
         placeholder={placeholder}
-        aria-label="Filter accounts"
+        aria-label={label}
         className="h-7 w-full rounded-md border border-line bg-panel-2 pl-7 pr-7 text-sm text-fg placeholder:text-muted/70 focus:border-accent focus:outline-none"
       />
       {text && (

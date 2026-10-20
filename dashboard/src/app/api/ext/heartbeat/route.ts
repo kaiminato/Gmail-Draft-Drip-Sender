@@ -127,6 +127,7 @@ export async function POST(req: Request) {
       );
     for (const twin of silentTwins) {
       await db.update(schema.events).set({ accountId: account.id }).where(eq(schema.events.accountId, twin.id));
+      await db.update(schema.sentMail).set({ accountId: account.id }).where(eq(schema.sentMail.accountId, twin.id));
       await db
         .update(schema.accounts)
         .set({
@@ -146,7 +147,39 @@ export async function POST(req: Request) {
       .insert(schema.events)
       .values(rows)
       .onConflictDoNothing({ target: schema.events.id })
-      .returning({ type: schema.events.type });
+      .returning({ id: schema.events.id, type: schema.events.type });
+
+    // The sent-mail log: one row per message, with the sender, manager and
+    // tier as they are right now. Only for events seen for the first time,
+    // so a re-sent batch adds nothing.
+    const newIds = new Set(inserted.filter((r) => r.type === "sent").map((r) => r.id));
+    const sent = incoming.filter((e) => e.type === "sent" && newIds.has(e.id));
+    if (sent.length) {
+      let managerName: string | null = null;
+      if (account.managerId) {
+        const [m] = await db.select({ name: schema.managers.name }).from(schema.managers).where(eq(schema.managers.id, account.managerId)).limit(1);
+        managerName = m?.name ?? null;
+      }
+      await db
+        .insert(schema.sentMail)
+        .values(
+          sent.map((e) => ({
+            id: e.id,
+            accountId: account.id,
+            sender: account.email,
+            managerId: account.managerId,
+            managerName,
+            recipient: e.recipients && e.recipients.length ? e.recipients.join(", ").slice(0, 1000) : null,
+            recipientCount: Math.max(1, e.recipients ? e.recipients.length : 1),
+            subject: e.subject ? e.subject.slice(0, 500) : null,
+            tier: account.tier,
+            late: !!e.late,
+            sentAt: new Date(Number.isFinite(e.t) ? e.t : Date.now()),
+          })),
+        )
+        .onConflictDoNothing({ target: schema.sentMail.id });
+    }
+
     const blocks = inserted.filter((r) => r.type === "blocked").length;
     if (blocks) {
       await db

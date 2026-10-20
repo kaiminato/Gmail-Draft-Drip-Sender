@@ -84,6 +84,35 @@ export const events = pgTable(
   ],
 );
 
+// One row per message sent, written when its "sent" event arrives, with the
+// sender, manager and tier frozen as they were at that moment. Kept apart
+// from `events` (which the statistics are built from) so rows here can be
+// deleted from the dashboard without touching the numbers, and so the log
+// outlives an account: a removed account leaves its rows with the sender
+// address and no link.
+export const sentMail = pgTable(
+  "sent_mail",
+  {
+    id: text("id").primaryKey(), // the extension's event id; a re-sent batch is a no-op
+    accountId: uuid("account_id").references(() => accounts.id, { onDelete: "set null" }),
+    sender: text("sender"),
+    managerId: uuid("manager_id").references(() => managers.id, { onDelete: "set null" }),
+    managerName: text("manager_name"),
+    recipient: text("recipient"),
+    recipientCount: integer("recipient_count").notNull().default(1),
+    subject: text("subject"),
+    tier: text("tier"),
+    late: boolean("late").notNull().default(false),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("sent_mail_time_idx").on(t.sentAt),
+    index("sent_mail_account_time_idx").on(t.accountId, t.sentAt),
+    index("sent_mail_manager_idx").on(t.managerId),
+  ],
+);
+
 // Key/value for the few dashboard-wide settings (the admin password hash).
 export const settings = pgTable("settings", {
   key: text("key").primaryKey(),
@@ -101,3 +130,4 @@ export const adminEmails = pgTable("admin_emails", {
 export type Manager = typeof managers.$inferSelect;
 export type Account = typeof accounts.$inferSelect;
 export type Event = typeof events.$inferSelect;
+export type SentMail = typeof sentMail.$inferSelect;

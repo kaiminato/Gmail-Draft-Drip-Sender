@@ -10,6 +10,11 @@ const ICONS: Record<string, ReactNode> = {
       <rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 8l9 6 9-6" />
     </svg>
   ),
+  sent: (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" />
+    </svg>
+  ),
   managers: (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><circle cx="17.5" cy="10" r="2.5" /><path d="M15 20a5 5 0 0 1 6.5-4.5" />
@@ -29,6 +34,7 @@ const ICONS: Record<string, ReactNode> = {
 
 const ITEMS: { href: string; key: string; label: string }[] = [
   { href: "/", key: "accounts", label: "Accounts" },
+  { href: "/sent", key: "sent", label: "Sent" },
   { href: "/managers", key: "managers", label: "Managers" },
   { href: "/stats", key: "stats", label: "Stats" },
   { href: "/settings", key: "settings", label: "Settings" },
