@@ -33,7 +33,9 @@ What it shows and does:
   moment (frozen then, so re-assigning an account does not rewrite history). Filter by
   manager and free text, page through by 100, tick rows (or "Select all on this page") and
   delete them. Deleting here removes log rows only; the statistics, built from the events
-  table, keep their numbers. The log also outlives an account: removing one leaves its
+  table, keep their numbers. **CSV ▾** downloads the log with the columns you tick: every
+  row matching the current filter across all pages, or only the ticked rows when there
+  are any. Times in the file are in the dashboard zone; the file opens cleanly in Excel. The log also outlives an account: removing one leaves its
   rows with the address and no link.
 - **Managers** — labels you create and assign accounts to. Managers do not log in.
 - **Stats** — sends today / this week / this month / all time, blocks, bounces and failed

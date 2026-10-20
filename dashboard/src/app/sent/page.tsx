@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
+import { asc, count, desc, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireAdmin } from "@/lib/admin";
-import { filterWords } from "@/lib/filter";
 import { fmtDateTime } from "@/lib/format";
+import { CSV_FIELDS, DEFAULT_CSV_FIELDS, sentWhere } from "@/lib/sentQuery";
 import { dashboardTz } from "@/lib/stats";
+import { CsvExport } from "@/components/CsvExport";
 import { ManagerFilter } from "@/components/ManagerFilter";
 import { SearchFilter } from "@/components/SearchFilter";
 import { SelectDelete } from "@/components/SelectDelete";
@@ -35,21 +36,7 @@ export default async function SentPage({
 
   const managers = await db.select().from(schema.managers).orderBy(asc(schema.managers.name));
 
-  const conds: SQL[] = [];
-  if (filter === "none") conds.push(isNull(schema.sentMail.managerId));
-  else if (filter) conds.push(eq(schema.sentMail.managerId, filter));
-  for (const w of filterWords(q)) {
-    const like = "%" + w.replace(/[%_\\]/g, (c) => "\\" + c) + "%";
-    conds.push(
-      or(
-        ilike(schema.sentMail.sender, like),
-        ilike(schema.sentMail.recipient, like),
-        ilike(schema.sentMail.subject, like),
-        ilike(schema.sentMail.managerName, like),
-      )!,
-    );
-  }
-  const where = conds.length ? and(...conds) : undefined;
+  const where = sentWhere({ manager: filter, q });
 
   const dayStart = sql`date_trunc('day', now() at time zone ${tz})`;
   const local = sql`(${schema.sentMail.sentAt} at time zone ${tz})`;
@@ -78,6 +65,12 @@ export default async function SentPage({
         <div className="flex flex-wrap items-center gap-2">
           <SearchFilter value={q} keep={keepFor("q")} path="/sent" placeholder="Filter by sender, recipient, subject, manager…" label="Filter sent mail" className="w-72 max-w-full" />
           <ManagerFilter value={filter} managers={managers} className={select} keep={keepFor("manager")} path="/sent" />
+          <CsvExport
+            manager={filter}
+            q={q}
+            matching={matching}
+            fields={CSV_FIELDS.map((f) => ({ key: f.key, label: f.label, checked: DEFAULT_CSV_FIELDS.includes(f.key) }))}
+          />
         </div>
       </PageHeader>
 
