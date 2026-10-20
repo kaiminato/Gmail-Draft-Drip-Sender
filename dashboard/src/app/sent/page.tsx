@@ -51,13 +51,13 @@ export default async function SentPage({
   }
   const where = conds.length ? and(...conds) : undefined;
 
-  const [[{ n: matching }], [{ n: all }], [{ n: today }], rows] = await Promise.all([
+  const dayStart = sql`date_trunc('day', now() at time zone ${tz})`;
+  const local = sql`(${schema.sentMail.sentAt} at time zone ${tz})`;
+  const [[{ n: matching }], [{ n: all }], [{ n: today }], [{ n: yesterday }], rows] = await Promise.all([
     db.select({ n: count() }).from(schema.sentMail).where(where),
     db.select({ n: count() }).from(schema.sentMail),
-    db
-      .select({ n: count() })
-      .from(schema.sentMail)
-      .where(sql`(${schema.sentMail.sentAt} at time zone ${tz}) >= date_trunc('day', now() at time zone ${tz})`),
+    db.select({ n: count() }).from(schema.sentMail).where(sql`${local} >= ${dayStart}`),
+    db.select({ n: count() }).from(schema.sentMail).where(sql`${local} >= ${dayStart} - interval '1 day' and ${local} < ${dayStart}`),
     db
       .select()
       .from(schema.sentMail)
@@ -74,15 +74,16 @@ export default async function SentPage({
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Sent" description="Every message sent, as reported by the extensions. Times shown in the dashboard zone.">
+      <PageHeader title="Sent" description={"Every message sent, as reported by the extensions. Times and the day boundary use " + tz + "."}>
         <div className="flex flex-wrap items-center gap-2">
           <SearchFilter value={q} keep={keepFor("q")} path="/sent" placeholder="Filter by sender, recipient, subject, manager…" label="Filter sent mail" className="w-72 max-w-full" />
           <ManagerFilter value={filter} managers={managers} className={select} keep={keepFor("manager")} path="/sent" />
         </div>
       </PageHeader>
 
-      <div className="grid grid-cols-3 gap-3">
-        <Stat label="Sent today" value={today} tone="accent" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat label="Sent today" value={today} tone="accent" sub={"since 00:00 " + tz} />
+        <Stat label="Yesterday" value={yesterday} />
         <Stat label="All time" value={all} />
         <Stat label="Matching" value={matching} sub={pages > 1 ? "page " + page + " of " + pages : undefined} />
       </div>

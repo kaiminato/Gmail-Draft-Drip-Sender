@@ -17,7 +17,7 @@ import { SearchFilter } from "@/components/SearchFilter";
 import { StatusPill } from "@/components/StatusPill";
 import { TierBadge } from "@/components/TierBadge";
 import { btn, btnDanger, btnPrimary, btnTier, PageHeader, select, Stat, tableWrap, td, th } from "@/components/ui";
-import { bulkAct, cancelCommand, queueCommand, setManager } from "./actions";
+import { bulkAct, cancelCommand, deleteAccounts, queueCommand, setManager } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -185,7 +185,7 @@ export default async function AccountsPage({
         <input type="hidden" name="managerId" value={scope} />
         <input type="hidden" name="q" value={q} />
       </form>
-      <BulkBar scopeLabel={scopeLabel} />
+      <BulkBar scopeLabel={scopeLabel} onDelete={deleteAccounts} />
 
       <div className={tableWrap}>
         <table className="w-full border-collapse text-sm">

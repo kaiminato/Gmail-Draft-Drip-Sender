@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { TIER_META, TIER_ORDER } from "@/lib/tiers";
-import { btnDanger, btnGhost, btnTier } from "@/components/ui";
+import { btn, btnDanger, btnGhost, btnTier } from "@/components/ui";
 
 function boxes(): HTMLInputElement[] {
   return Array.from(document.querySelectorAll<HTMLInputElement>('input[name="ids"][form="bulk"]'));
@@ -14,7 +14,14 @@ function boxes(): HTMLInputElement[] {
 // ticked, on the selection. It floats at the bottom only for a hand-picked
 // part of the list, where the rows may be far from the bar; after Select all
 // it stays where it is.
-export function BulkBar({ scopeLabel }: { scopeLabel: string }) {
+export function BulkBar({
+  scopeLabel,
+  onDelete,
+}: {
+  scopeLabel: string;
+  // Server action that deletes the ticked accounts (the form's `ids`).
+  onDelete: (form: FormData) => void | Promise<void>;
+}) {
   const [sel, setSel] = useState({ count: 0, total: 0 });
 
   useEffect(() => {
@@ -58,9 +65,27 @@ export function BulkBar({ scopeLabel }: { scopeLabel: string }) {
           Stop
         </button>
         {count > 0 && (
-          <button type="button" onClick={clear} className={btnGhost}>
-            Clear
-          </button>
+          <>
+            <button
+              form="bulk"
+              formAction={onDelete}
+              className={btn + " text-danger hover:border-danger/50 hover:bg-danger/10 hover:text-danger"}
+              title="Remove the ticked accounts from the dashboard"
+              onClick={(e) => {
+                const ok = confirm(
+                  "Delete " + count + " account" + (count === 1 ? "" : "s") + " from the dashboard?\n\n" +
+                    "Their events go with them, so the statistics drop those sends; the sent-mail log keeps their messages, without a link. " +
+                    "An extension that is still running re-registers itself as a new account on its next heartbeat.",
+                );
+                if (!ok) e.preventDefault();
+              }}
+            >
+              Delete
+            </button>
+            <button type="button" onClick={clear} className={btnGhost}>
+              Clear
+            </button>
+          </>
         )}
       </div>
     </div>
