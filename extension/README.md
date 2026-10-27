@@ -387,11 +387,14 @@ extension reload is still the reliable move.
   heartbeats from a busy address (a VPS running many profiles) with a browser challenge
   instead of passing them on; the popup then shows "dashboard error · HTTP 429 browser
   check…" and the dashboard flips the account offline. The extension passes the check
-  itself: it opens the dashboard in a small window in front for a few seconds, Chrome
-  clears the checkpoint and earns the cookie, the window closes, and heartbeats resume
-  with that cookie. A check that ends in "Failed to verify your browser" is reloaded a
-  couple of times, and the whole thing is retried every two minutes until it passes. The
-  log says what happened each time. Heartbeats are also jittered by a few seconds so the
+  itself: it opens the dashboard in a background tab for a few seconds, Chrome clears
+  the checkpoint and earns the cookie, the tab closes, and heartbeats resume with that
+  cookie. Nothing about it takes the focus from what you are doing, in that profile or
+  another: the tab is never the active one, and only when the background tab fails the
+  check twice in a row does the next round use a small window instead, placed behind the
+  window in use and never focused. A check that ends in "Failed to verify your browser"
+  is reloaded a couple of times, and the whole thing is retried every two minutes until
+  it passes. The log says what happened each time. Heartbeats are also jittered by a few seconds so the
   profiles on one machine do not all report in the same instant.
 - **The Gmail tab comes back on its own, running or stopped.** When the browser starts, a
   Gmail tab is opened in the background within a minute or so (staggered, so ten

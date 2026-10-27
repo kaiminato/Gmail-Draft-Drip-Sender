@@ -44,9 +44,10 @@ const MAX_QUEUED_EVENTS = 500;
 const EVENTS_PER_HEARTBEAT = 100;
 const HEARTBEAT_TIMEOUT_MS = 15000;
 const HEARTBEAT_JITTER_MS = 8000;        // alarm beats are spread so profiles on one machine do not fire together
-const CHALLENGE_SOLVE_EVERY_MS = 2 * 60000; // at most one browser-check window this often
-const CHALLENGE_TAB_MAX_MS = 45000;      // how long that window gets to clear the check
+const CHALLENGE_SOLVE_EVERY_MS = 2 * 60000; // at most one browser-check tab this often
+const CHALLENGE_TAB_MAX_MS = 45000;      // how long that tab gets to clear the check
 const CHALLENGE_RELOADS = 2;             // reloads after a "Failed to verify" before giving up this round
+const CHALLENGE_BG_FAILS_BEFORE_POPUP = 2; // background-tab rounds that must fail before a (never focused) window is tried
 const CYCLE_STALE_MS = 10 * 60000;
 
 const DEFAULTS = {
@@ -94,7 +95,8 @@ const DEFAULTS = {
   gmailSignedOut: false,   // Gmail sent the tab to accounts.google.com; no new tab until signed in again
   gmailMissingSince: 0,    // when the profile was first seen without a Gmail tab
   gmailWatchLoggedAt: 0,   // last time the tab watchdog wrote its status line
-  challengeSolveAt: 0      // last time a browser-check window was opened
+  challengeSolveAt: 0,     // last time a browser-check tab was opened
+  challengeBgFails: 0      // browser-check rounds in a background tab that failed in a row; reset when one passes
 };
 
 let busy = false;
@@ -121,7 +123,7 @@ function getVersion() {
 // on the VPS: a 1.6.11 manifest with the 1.6.6 worker.) So the code carries
 // its own version, and a mismatch reloads the extension. The two are bumped
 // together; extension/test/version.test.js checks that.
-const CODE_VERSION = '1.6.18';
+const CODE_VERSION = '1.6.19';
 
 async function ensureFreshCode() {
   const manifest = getVersion();
@@ -998,7 +1000,8 @@ function scheduleHeartbeatSoon() {
 // background fetch cannot run that script, but a tab can, and the cookie it
 // earns rides on later fetches because they include credentials. So a
 // challenge opens the dashboard in a background tab, waits for the checkpoint
-// to clear, closes the tab and beats again.
+// to clear, closes the tab and beats again. Nothing about it takes the focus:
+// the tab is never the active one, and the fallback window is never focused.
 let challengeSolve = null;
 
 function isChallenge(r) {
@@ -1014,18 +1017,32 @@ function solveChallenge() {
   const url = CFG.apiBase.replace(/\/+$/, '') + '/login';
   challengeSolve = (async () => {
     // The guard lives in storage: the worker sleeps between heartbeats, and
-    // a variable started from zero every time, so a window opened per beat.
-    const last = Number((await getState()).challengeSolveAt) || 0;
+    // a variable started from zero every time, so a tab opened per beat.
+    const st0 = await getState();
+    const last = Number(st0.challengeSolveAt) || 0;
     if (Date.now() - last < CHALLENGE_SOLVE_EVERY_MS) return false;
+    const bgFails = Number(st0.challengeBgFails) || 0;
+    // A background tab never takes the focus from whatever the person is
+    // doing, in this profile or another, so that is where the check runs.
+    // Only when the background tab keeps ending in "Failed to verify" (the
+    // checkpoint's script starved by tab throttling) does the check get a
+    // small window of its own instead, and even that one stays behind the
+    // window in use: a check that pops in front every two minutes on every
+    // profile makes the machine unusable.
+    const usePopup = bgFails >= CHALLENGE_BG_FAILS_BEFORE_POPUP;
     await setState({ challengeSolveAt: Date.now() });
     let win = null;
+    let tabId = null;
     try {
-      // A small window of its own, in front. In a background tab the
-      // checkpoint's script is starved and ends in "Failed to verify your
-      // browser"; the Gmail tab is left exactly as it was.
-      win = await chrome.windows.create({ url, type: 'popup', focused: true, width: 520, height: 420 });
-      const tabId = win && win.tabs && win.tabs[0] ? win.tabs[0].id : null;
-      if (tabId == null) throw new Error('the check window has no tab');
+      if (usePopup) {
+        win = await chrome.windows.create({ url, type: 'popup', focused: false, width: 520, height: 420 });
+        tabId = win && win.tabs && win.tabs[0] ? win.tabs[0].id : null;
+        if (tabId == null) throw new Error('the check window has no tab');
+      } else {
+        const tab = await openUrlTab(url, false);
+        tabId = tab && tab.id;
+        if (tabId == null) throw new Error('the check tab was not created');
+      }
       // The checkpoint page reloads into the real page once it is satisfied;
       // with a cookie still valid there is no checkpoint and it loads at once.
       // When it gives up it says so on the page, and a fresh load gets a new
@@ -1058,21 +1075,25 @@ function solveChallenge() {
         }
         if (!/checkpoint|verif|just a moment|challenge/i.test(title)) {
           cleared = true;
-          await nap(1000); // let the cookie land before the window goes
+          await nap(1000); // let the cookie land before the tab goes
           break;
         }
       }
       const code = /code\s*(\d+)/i.exec(lastText);
+      const where = usePopup ? 'in a window behind the one in use' : 'in a background tab';
+      await setState({ challengeBgFails: cleared ? 0 : bgFails + 1 });
       await log(cleared ? 'info' : 'warn', cleared
-        ? 'Passed the dashboard host\'s browser check' + (reloads ? ' after ' + (reloads + 1) + ' attempts' : '') + '; reporting resumes.'
-        : 'The dashboard host\'s browser check did not pass' + (reloads ? ' in ' + (reloads + 1) + ' attempts' : '') +
-          (code ? ' (code ' + code[1] + ')' : '') + '. Trying again in ' + Math.round(CHALLENGE_SOLVE_EVERY_MS / 60000) + ' min.');
+        ? 'Passed the dashboard host\'s browser check ' + where + (reloads ? ' after ' + (reloads + 1) + ' attempts' : '') + '; reporting resumes.'
+        : 'The dashboard host\'s browser check did not pass ' + where + (reloads ? ' in ' + (reloads + 1) + ' attempts' : '') +
+          (code ? ' (code ' + code[1] + ')' : '') + '. Trying again in ' + Math.round(CHALLENGE_SOLVE_EVERY_MS / 60000) + ' min' +
+          (!usePopup && bgFails + 1 >= CHALLENGE_BG_FAILS_BEFORE_POPUP ? ', in a small window behind the one in use' : '') + '.');
       return cleared;
     } catch (e) {
-      await log('warn', 'Could not open a window for the dashboard host\'s browser check: ' + String((e && e.message) || e));
+      await log('warn', 'Could not open a tab for the dashboard host\'s browser check: ' + String((e && e.message) || e));
       return false;
     } finally {
       if (win) { try { await chrome.windows.remove(win.id); } catch (_) {} }
+      else if (tabId != null) { try { await chrome.tabs.remove(tabId); } catch (_) {} }
     }
   })().finally(() => { challengeSolve = null; });
   return challengeSolve;
