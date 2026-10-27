@@ -402,11 +402,15 @@ extension reload is still the reliable move.
   three minutes, for example after the tab was closed by hand, gets one opened the same
   way. So the address is known and the drafts are counted even while the account is
   stopped, and a start from the dashboard has somewhere to go.
-- **A profile Gmail has signed out is left alone.** When Gmail sends its tab to the
-  sign-in page (accounts.google.com), no new Gmail tab is opened, because it would only
-  land on the same page a minute later, for ever. A running account stops with "needs
-  Gmail sign-in" on the dashboard and a notification; the popup's tab pill says so too.
-  Sign in on that page and the run starts again by itself.
+- **A profile Gmail has signed out is left alone.** When Gmail sends its tab somewhere
+  other than Gmail (the sign-in page, the Gmail front page, an account notice), no new
+  Gmail tab is opened, because it would only land on the same page a few minutes later,
+  for ever. The extension recognises the usual Google sign-in addresses, and beyond that
+  it remembers the tab it opened for Gmail itself: as long as that tab is open and not on
+  Gmail, it is the sign-in tab, whatever its address, and no second one is opened beside
+  it. A running account stops with "needs Gmail sign-in" on the dashboard and a
+  notification; the popup's tab pill says so too. Sign in on that tab and the run starts
+  again by itself.
 - **Transient problems** (Gmail tab closed, page still loading, a draft that would not
   open) are retried once a minute for as long as the run is on; a failure never stops it.
   Every fifth failure in a row posts a notification, the log shows the running count, and

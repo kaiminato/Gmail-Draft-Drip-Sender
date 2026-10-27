@@ -92,7 +92,8 @@ const DEFAULTS = {
   cycleStartedAt: 0,
   retryDraftId: '',        // the draft the last cycle opened but did not finish sending
   retryDraftSubject: '',
-  gmailSignedOut: false,   // Gmail sent the tab to accounts.google.com; no new tab until signed in again
+  gmailSignedOut: false,   // Gmail sent the tab somewhere else (sign-in page); no new tab until signed in again
+  gmailTabId: 0,           // the tab this extension last opened for Gmail; while it is off Gmail, no other is opened
   gmailMissingSince: 0,    // when the profile was first seen without a Gmail tab
   gmailWatchLoggedAt: 0,   // last time the tab watchdog wrote its status line
   challengeSolveAt: 0,     // last time a browser-check tab was opened
@@ -123,7 +124,7 @@ function getVersion() {
 // on the VPS: a 1.6.11 manifest with the 1.6.6 worker.) So the code carries
 // its own version, and a mismatch reloads the extension. The two are bumped
 // together; extension/test/version.test.js checks that.
-const CODE_VERSION = '1.6.19';
+const CODE_VERSION = '1.6.20';
 
 async function ensureFreshCode() {
   const manifest = getVersion();
@@ -362,8 +363,12 @@ async function openUrlTab(url, active) {
   return chrome.tabs.create({ url, active: !!active, windowId: win.id });
 }
 
-function createGmailTab(active) {
-  return openUrlTab(GMAIL_URL, active);
+async function createGmailTab(active) {
+  const tab = await openUrlTab(GMAIL_URL, active);
+  // Remembered so that, wherever Gmail sends it, it still counts as this
+  // profile's Gmail tab and no second one is opened beside it.
+  if (tab && tab.id != null) await setState({ gmailTabId: tab.id });
+  return tab;
 }
 
 function waitForTabComplete(tabId, timeout = 45000) {
@@ -469,17 +474,48 @@ async function bringToFront(tab) {
   await sleep(1200);
 }
 
+// Where a signed-out profile's Gmail tab ends up: the sign-in page, the
+// Gmail front page for people without a session, an account notice.
+const SIGNED_OUT_URLS = [
+  '*://accounts.google.com/*',
+  '*://accounts.youtube.com/*',
+  '*://myaccount.google.com/*',
+  '*://www.google.com/gmail/*',
+  '*://workspace.google.com/*'
+];
+
 // A Google sign-in page in this profile: Gmail sent its tab there because the
 // session expired. While one is open, no Gmail tab is opened, since it would
-// only land on the same page, a minute apart, for ever.
+// only land on the same page, a minute apart, for ever. Gmail does not always
+// use accounts.google.com for that, so the tab this extension itself opened
+// for Gmail counts too, wherever it was sent: a tab opened for Gmail that is
+// not on Gmail is the sign-in tab, whatever its address. That is what kept
+// opening tab after tab: the first one landed on a page the host list did
+// not know, and every few minutes another went the same way.
 async function findSignInTab() {
   let tabs = [];
-  try { tabs = await chrome.tabs.query({ url: '*://accounts.google.com/*' }); } catch (_) {}
-  return tabs[0] || null;
+  try { tabs = await chrome.tabs.query({ url: SIGNED_OUT_URLS }); } catch (_) {}
+  if (tabs[0]) return tabs[0];
+  const id = Number((await getState()).gmailTabId) || 0;
+  if (!id) return null;
+  let t = null;
+  try { t = await chrome.tabs.get(id); } catch (_) { await setState({ gmailTabId: 0 }); return null; }
+  const url = (t && (t.url || t.pendingUrl)) || '';
+  if (/^https?:\/\/mail\.google\.com\//i.test(url)) return null;
+  // Tab ids start over when the browser restarts, so the remembered one may
+  // now be any tab at all: it only counts while it is somewhere Google sends
+  // a signed-out Gmail tab, or on an error page.
+  if (!/^https?:\/\/[^/]*\.(google|youtube)\.com\//i.test(url) && !/^chrome-error:/i.test(url)) {
+    await setState({ gmailTabId: 0 });
+    return null;
+  }
+  return t;
 }
 
 function tabHost(t) {
-  try { return new URL((t && (t.url || t.pendingUrl)) || '').hostname || 'accounts.google.com'; } catch (_) { return 'accounts.google.com'; }
+  const url = (t && (t.url || t.pendingUrl)) || '';
+  if (/^chrome-error:/i.test(url)) return 'an error page';
+  try { return new URL(url).hostname || 'accounts.google.com'; } catch (_) { return 'accounts.google.com'; }
 }
 
 // Finds, or opens, a Gmail tab and brings it to the front fully loaded.
@@ -1301,7 +1337,7 @@ async function watchGmailTab() {
   if (signin) {
     if (!st.gmailSignedOut) {
       await setState({ gmailSignedOut: true });
-      await log('warn', 'Gmail is asking for a sign-in (' + tabHost(signin) + '). No Gmail tab will be opened until this profile is signed in again.');
+      await log('warn', 'Gmail sent its tab to ' + tabHost(signin) + ' instead of Gmail: this profile needs a sign-in. No other Gmail tab will be opened until it is signed in again; sign in on that tab.');
       scheduleHeartbeatSoon();
     }
     if (since) await setState({ gmailMissingSince: 0 });
@@ -1353,6 +1389,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 chrome.runtime.onStartup.addListener(async () => {
   const st = await getState();
+  // Tab ids do not survive a restart; the remembered Gmail tab is gone.
+  if (st.gmailTabId) await setState({ gmailTabId: 0 });
   await setBadge(st.running);
   await ensureHeartbeatAlarm();
   await resumeIfNeeded('Browser restarted.');
