@@ -1,7 +1,7 @@
 import type { DraftsLevel, Status } from "./status";
 
 // What the alert watcher compares between two polls. Kept small: it is
-// polled every half minute and stored in the browser.
+// polled on the installs' own beat and stored in the browser.
 export type AccountSnap = {
   id: string;
   name: string;

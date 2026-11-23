@@ -2,7 +2,24 @@ import type { Account } from "@/db/schema";
 
 export type Status = "running" | "stopped" | "empty" | "blocked" | "offline";
 
+// A running install reports every minute, so three silent minutes still mean
+// something is wrong. A paused one reports every five and has nothing to say
+// in between (extension 1.6.21+): judging it by the running rule painted it
+// offline for two minutes out of every five and raised an alert each time.
+// Builds older than that beat every minute either way, which the longer rule
+// covers too.
 export const OFFLINE_AFTER_MS = 3 * 60 * 1000;
+export const IDLE_OFFLINE_AFTER_MS = 12 * 60 * 1000;
+
+// Two installs reporting the same address are only merged once one has been
+// quiet this long. A live paused install is silent for five minutes at a
+// time, so the old three-minute rule would fold it into the other one on
+// every beat and both rows would be rebuilt forever.
+export const SILENT_AFTER_MS = 30 * 60 * 1000;
+
+export function offlineAfterMs(a: Pick<Account, "running">): number {
+  return a.running ? OFFLINE_AFTER_MS : IDLE_OFFLINE_AFTER_MS;
+}
 
 // One rule for every place a status pill appears. "empty" can be a run that
 // is still on and waiting for drafts (extension 1.6.3+) or, from older
@@ -12,7 +29,7 @@ export function statusOf(
   now = Date.now(),
 ): Status {
   const seen = a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0;
-  if (!seen || now - seen > OFFLINE_AFTER_MS) return "offline";
+  if (!seen || now - seen > offlineAfterMs(a)) return "offline";
   if (a.stopReason === "blocked") return "blocked";
   if (a.stopReason === "empty") return "empty";
   if (a.running) return "running";

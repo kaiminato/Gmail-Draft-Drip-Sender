@@ -6,7 +6,12 @@ import { useEffect, useState } from "react";
 import { diffSnapshots, type AccountSnap, type Alert } from "@/lib/alerts";
 import { alertAllowed, loadAlertPrefs } from "@/lib/prefs";
 
-const POLL_MS = 30000;
+// One beat's worth. Unlike the page's own auto-refresh this keeps running in
+// a hidden tab - reaching you with the dashboard in the background is what it
+// is for - so it is the one request a parked tab makes, and it backs off to
+// the idle beat when nothing in the fleet is sending.
+const POLL_MS = 60000;
+const IDLE_POLL_MS = 300000;
 const TOAST_MS = 60000;
 const SNAP_KEY = "alerts-snapshot";
 
@@ -50,7 +55,7 @@ const TONE: Record<Alert["kind"], string> = {
   blocked: "border-l-danger",
 };
 
-// Polls the account summary every half minute, compares it with the last
+// Polls the account summary once a minute, compares it with the last
 // picture (kept in localStorage so a reload does not lose it), and shows a
 // toast for every change worth knowing: an account going offline, getting
 // blocked, or dropping under 5 drafts. With permission, the same goes out
@@ -63,11 +68,17 @@ export function AlertWatcher() {
   useEffect(() => {
     let prev = loadSnapshot();
     let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
+      // A sending fleet is worth following every minute; a paused one reports
+      // every five, so polling it that fast only asks the same question again.
+      let delay = POLL_MS;
       try {
         const r = await fetch("/api/accounts/summary", { cache: "no-store" });
-        if (!r.ok || stopped) return;
+        if (!r.ok) return;
         const data = (await r.json()) as { accounts: AccountSnap[] };
+        if (stopped) return;
+        if (!data.accounts.some((a) => a.status === "running")) delay = IDLE_POLL_MS;
         // The baseline moves on whether or not anything is shown, so a
         // muted hour does not replay later. The switches on the Settings
         // page decide what is shown, toasts and desktop pop-ups alike.
@@ -83,14 +94,15 @@ export function AlertWatcher() {
           }
         }
       } catch {
-        // Offline or signed out: try again next tick.
+        // Offline or signed out: try again at the normal rate.
+      } finally {
+        if (!stopped) timer = setTimeout(tick, delay);
       }
     };
     tick();
-    const timer = setInterval(tick, POLL_MS);
     return () => {
       stopped = true;
-      clearInterval(timer);
+      if (timer) clearTimeout(timer);
     };
   }, [router]);
 

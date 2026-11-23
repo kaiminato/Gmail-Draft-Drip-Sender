@@ -144,6 +144,13 @@ export default async function AccountsPage({
   );
   const behind = rows.filter((r) => r.a.version && cmpVersion(r.a.version, latestVersion) < 0).length;
 
+  // The table is only as fresh as the beats behind it. A running install
+  // reports every minute and a paused one every five, so a stopped fleet is
+  // refreshed at the slow rate instead of re-rendering the list every 15
+  // seconds for numbers that cannot have changed. A queued command makes it
+  // fast again, so the ack shows up as soon as it lands.
+  const fastRefresh = rows.some((r) => r.a.running || r.a.pendingCommand);
+
   const scope = filter === "none" ? "" : filter;
   const scopeLabel =
     (filter === "none"
@@ -154,7 +161,7 @@ export default async function AccountsPage({
 
   return (
     <div className="space-y-4">
-      <AutoRefresh seconds={15} />
+      <AutoRefresh seconds={fastRefresh ? 60 : 300} />
       {highlightId && <HighlightRow id={highlightId} />}
 
       <PageHeader title="Accounts" description="Every extension install, as reported on its last heartbeat.">

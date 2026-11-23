@@ -10,8 +10,14 @@ self.DRIP_CONFIG = {
   apiBase: 'https://YOUR-APP.vercel.app',
   // Must equal EXTENSION_API_KEY on the dashboard.
   apiKey: 'REPLACE_ME',
-  // How often to report in. Chrome allows no less than 0.5.
+  // How often to report in while the account is sending. Chrome allows no
+  // less than 0.5.
   heartbeatMinutes: 0.5,
+  // How often to report in while it is not sending. The beat is also how a
+  // start/stop clicked on the dashboard reaches this install, so it cannot
+  // stop entirely - but 5 minutes is 288 requests a day instead of 1,440.
+  // Lower it if a start from the dashboard has to be picked up sooner.
+  idleHeartbeatMinutes: 5,
   // The clock every account's day follows: when "today" starts, when the
   // nightly rest falls, when the new plan is made, what the popup shows. An
   // IANA zone name. Empty means each machine's own clock. A config.local.js

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { and, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { heartbeatSchema, type HeartbeatEvent, type HeartbeatReply } from "@/lib/heartbeat";
-import { OFFLINE_AFTER_MS } from "@/lib/status";
+import { SILENT_AFTER_MS } from "@/lib/status";
 import { isTier } from "@/lib/tiers";
 
 export const dynamic = "force-dynamic";
@@ -122,7 +122,7 @@ export async function POST(req: Request) {
         and(
           eq(schema.accounts.email, account.email),
           ne(schema.accounts.id, account.id),
-          or(isNull(schema.accounts.lastSeenAt), lt(schema.accounts.lastSeenAt, new Date(now.getTime() - OFFLINE_AFTER_MS))),
+          or(isNull(schema.accounts.lastSeenAt), lt(schema.accounts.lastSeenAt, new Date(now.getTime() - SILENT_AFTER_MS))),
         ),
       );
     for (const twin of silentTwins) {

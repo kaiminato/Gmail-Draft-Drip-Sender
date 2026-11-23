@@ -43,7 +43,7 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="space-y-4">
-      <AutoRefresh seconds={30} />
+      <AutoRefresh seconds={a.running || a.pendingCommand ? 60 : 300} />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link href="/" className="text-xs text-muted hover:text-fg">← Accounts</Link>

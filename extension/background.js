@@ -20,7 +20,7 @@ try { importScripts('config.local.js'); } catch (_) {}
 importScripts('planner.js');
 
 const CFG = Object.assign(
-  { apiBase: '', apiKey: '', heartbeatMinutes: 0.5, timeZone: '' },
+  { apiBase: '', apiKey: '', heartbeatMinutes: 0.5, idleHeartbeatMinutes: 5, timeZone: '' },
   BASE_CONFIG,
   (typeof self !== 'undefined' && self.DRIP_CONFIG) || {}
 );
@@ -124,7 +124,7 @@ function getVersion() {
 // on the VPS: a 1.6.11 manifest with the 1.6.6 worker.) So the code carries
 // its own version, and a mismatch reloads the extension. The two are bumped
 // together; extension/test/version.test.js checks that.
-const CODE_VERSION = '1.6.20';
+const CODE_VERSION = '1.6.21';
 
 async function ensureFreshCode() {
   const manifest = getVersion();
@@ -325,6 +325,9 @@ async function stop(code, message, level) {
   await chrome.alarms.clear(ALARM);
   await setState({ running: false, nextSendAt: 0, stopReason: code || 'user' });
   await setBadge(false);
+  // Nothing is being sent now, so the slower idle beat applies: re-arm it so
+  // the drop takes effect at once instead of at the next minute.
+  await ensureHeartbeatAlarm();
   if (message) await log(level || 'info', message);
   await enqueueEvent('stopped', { reason: code || 'user', message: message || '' });
 }
@@ -895,6 +898,8 @@ async function start(source, tier) {
   const tierPatch = t !== st.tier ? { tier: t, tierSetAt: Date.now() } : {};
   await setState({ running: true, consecutiveFailures: 0, stopReason: '', ...tierPatch });
   await setBadge(true);
+  // Running again: back to the fast beat, so the dashboard follows the sends.
+  await ensureHeartbeatAlarm();
   // The version is stamped here so the log always says which build produced it.
   await log('info', 'Started v' + getVersion() + (source === 'admin' ? ' from the dashboard' : '') +
     ' on "' + t + '" (' + TIERS[t][0] + '-' + TIERS[t][1] + ' a day), ' +
@@ -967,12 +972,31 @@ async function getDeviceId() {
   return id;
 }
 
+// The beat is the command channel as well as the status feed: a start or stop
+// clicked on the dashboard is picked up on the next one, and nothing else can
+// wake a sleeping worker. It has to keep running while the account is idle -
+// but a paused account has nothing to say at the rate a sending one needs.
+// One beat a minute per install is 1,440 requests a day, sending or not, and
+// that is what a paused fleet's traffic turns out to be; five minutes while
+// stopped is 288, and the only cost is that a start waits for a check-in.
+const RUNNING_HEARTBEAT_MIN = 0.5;      // Chrome clamps anything lower
+const IDLE_HEARTBEAT_MIN = 5;
+
+async function heartbeatPeriodMinutes() {
+  const st = await getState();
+  const running = Math.max(RUNNING_HEARTBEAT_MIN, Number(CFG.heartbeatMinutes) || RUNNING_HEARTBEAT_MIN);
+  if (st.running) return running;
+  return Math.max(running, Number(CFG.idleHeartbeatMinutes) || IDLE_HEARTBEAT_MIN);
+}
+
+// Re-arms the alarm whenever the period it should run at changes, so a start
+// or a stop takes effect on the next beat rather than on the one after it.
 async function ensureHeartbeatAlarm() {
   try {
+    const period = await heartbeatPeriodMinutes();
     const existing = await chrome.alarms.get(HEARTBEAT_ALARM);
-    if (existing) return;
-    const period = Math.max(0.5, Number(CFG.heartbeatMinutes) || 0.5);
-    chrome.alarms.create(HEARTBEAT_ALARM, { delayInMinutes: 0.1, periodInMinutes: period });
+    if (existing && existing.periodInMinutes === period) return;
+    chrome.alarms.create(HEARTBEAT_ALARM, { delayInMinutes: Math.min(0.1, period), periodInMinutes: period });
   } catch (_) {}
 }
 
