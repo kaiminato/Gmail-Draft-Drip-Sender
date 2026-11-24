@@ -15,6 +15,13 @@
       "when": 1792506508778,
       "tag": "0001_sent_mail",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795528392614,
+      "tag": "0002_accounts_email_idx",
+      "breakpoints": true
     }
   ]
 }

@@ -95,6 +95,10 @@ export async function POST(req: Request) {
     lastSeenAt: now,
   };
 
+  // Only the columns this route reads back: the row is written on every beat,
+  // so there is no reason to haul all thirty through RETURNING. `xmax = 0` is
+  // true only for a row this statement inserted, which is what the twin sweep
+  // below keys off - see there.
   const [account] = await db
     .insert(schema.accounts)
     .values({ deviceId: hb.deviceId, ...reported })
@@ -106,7 +110,17 @@ export async function POST(req: Request) {
         email: sql`coalesce(${reported.email}, ${schema.accounts.email})`,
       },
     })
-    .returning();
+    .returning({
+      id: schema.accounts.id,
+      email: schema.accounts.email,
+      managerId: schema.accounts.managerId,
+      tier: schema.accounts.tier,
+      createdAt: schema.accounts.createdAt,
+      pendingCommand: schema.accounts.pendingCommand,
+      pendingCommandId: schema.accounts.pendingCommandId,
+      pendingTier: schema.accounts.pendingTier,
+      inserted: sql<boolean>`(xmax = 0)`.as("inserted"),
+    });
 
   // A reinstall gets a fresh device id, so the same address turns up twice:
   // the old install's row falls silent while the new one reports. Once a
@@ -114,7 +128,13 @@ export async function POST(req: Request) {
   // row: its events move over (the statistics follow), its manager is kept
   // when the live row has none, its blocks are added, and the row goes. Two
   // installs that both keep reporting are left alone.
-  if (account.email) {
+  //
+  // Only a new install can create that duplicate, so only a new install pays
+  // for the lookup - the beat that inserted the row, or one in its first few
+  // minutes while it is still learning its address. Every other beat, which
+  // is nearly all of them, is a single statement.
+  const young = now.getTime() - new Date(account.createdAt).getTime() < 10 * 60 * 1000;
+  if (account.email && (account.inserted || young)) {
     const silentTwins = await db
       .select({ id: schema.accounts.id, managerId: schema.accounts.managerId, blockCount: schema.accounts.blockCount })
       .from(schema.accounts)
