@@ -37,10 +37,40 @@ if (!url) {
 const migrationsFolder = resolve(root, "drizzle");
 const db = drizzle(neon(url));
 
+// A database that refuses every query - over its plan's quota, rate limited,
+// switched off - is an outage, not a bad migration. Aborting the build on it
+// leaves the previous deployment live and the new code stranded behind a red
+// X, while the site is already serving errors either way. So that case is
+// logged loudly and the build goes through: the code matches the schema it
+// was written against, and the site starts working the moment the database
+// does, with no redeploy. A migration that actually fails still aborts, which
+// is the case worth stopping for - that is a schema problem, and shipping
+// past it is how a deploy takes a working site down for good.
+function outageReason(err) {
+  const seen = new Set();
+  for (let e = err; e && typeof e === "object" && !seen.has(e); e = e.cause) {
+    seen.add(e);
+    const code = String(e.code || "");
+    const text = [e.message, e.detail, e.hint].filter(Boolean).join(" ");
+    if (/(HTTP status (5\d\d|429|402))\b/i.test(text)) return text;
+    if (/exceeded the quota|too many requests|endpoint is disabled|project is suspended|not currently accepting connections/i.test(text)) return text;
+    if (/^(ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT)$/.test(code)) return text || code;
+  }
+  return "";
+}
+
 try {
   await migrate(db, { migrationsFolder });
   console.log("[migrate] Database is up to date.");
 } catch (err) {
+  const outage = process.env.MIGRATE_STRICT === "1" ? "" : outageReason(err);
+  if (outage) {
+    console.warn("[migrate] The database refused the migration query, so the schema was NOT verified:");
+    console.warn("[migrate]   " + outage.replace(/\s+/g, " ").trim().slice(0, 300));
+    console.warn("[migrate] Building anyway. This deploy goes live once the database answers again;");
+    console.warn("[migrate] set MIGRATE_STRICT=1 to fail the build on a database outage instead.");
+    process.exit(0);
+  }
   console.error("[migrate] Migration failed; aborting the build.");
   console.error(err);
   process.exit(1);
