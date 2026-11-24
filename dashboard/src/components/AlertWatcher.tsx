@@ -6,12 +6,13 @@ import { useEffect, useState } from "react";
 import { diffSnapshots, type AccountSnap, type Alert } from "@/lib/alerts";
 import { alertAllowed, loadAlertPrefs } from "@/lib/prefs";
 
-// One beat's worth. Unlike the page's own auto-refresh this keeps running in
-// a hidden tab - reaching you with the dashboard in the background is what it
-// is for - so it is the one request a parked tab makes, and it backs off to
-// the idle beat when nothing in the fleet is sending.
-const POLL_MS = 60000;
-const IDLE_POLL_MS = 300000;
+// The installs report on their own beat (a minute around a send, ten minutes
+// otherwise), so this only needs to be quick enough to catch a change soon
+// after it lands. It keeps running in a hidden tab - reaching you with the
+// dashboard in the background is what it is for - and backs off when nothing
+// in the fleet is sending.
+const POLL_MS = 180000;
+const IDLE_POLL_MS = 600000;
 const TOAST_MS = 60000;
 const SNAP_KEY = "alerts-snapshot";
 

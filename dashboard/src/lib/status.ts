@@ -2,20 +2,19 @@ import type { Account } from "@/db/schema";
 
 export type Status = "running" | "stopped" | "empty" | "blocked" | "offline";
 
-// A running install reports every minute, so three silent minutes still mean
-// something is wrong. A paused one reports every five and has nothing to say
-// in between (extension 1.6.21+): judging it by the running rule painted it
-// offline for two minutes out of every five and raised an alert each time.
-// Builds older than that beat every minute either way, which the longer rule
-// covers too.
-export const OFFLINE_AFTER_MS = 3 * 60 * 1000;
-export const IDLE_OFFLINE_AFTER_MS = 12 * 60 * 1000;
+// The beat follows the work, not the clock (extension 1.6.22+): a minute in
+// the few minutes around a planned send, ten minutes the rest of the time,
+// including a whole overnight rest block. So silence only means "gone" once it
+// is longer than several of the slowest beats - three missed slow ones, here.
+// Judging a resting account by the old three-minute rule painted it offline
+// between every send, and raised an alert each time.
+export const OFFLINE_AFTER_MS = 30 * 60 * 1000;
+export const IDLE_OFFLINE_AFTER_MS = 60 * 60 * 1000;
 
 // Two installs reporting the same address are only merged once one has been
-// quiet this long. A live paused install is silent for five minutes at a
-// time, so the old three-minute rule would fold it into the other one on
-// every beat and both rows would be rebuilt forever.
-export const SILENT_AFTER_MS = 30 * 60 * 1000;
+// quiet this long, which has to clear the slow beat by a wide margin or a live
+// resting install would be folded into the other one.
+export const SILENT_AFTER_MS = 2 * 60 * 60 * 1000;
 
 export function offlineAfterMs(a: Pick<Account, "running">): number {
   return a.running ? OFFLINE_AFTER_MS : IDLE_OFFLINE_AFTER_MS;

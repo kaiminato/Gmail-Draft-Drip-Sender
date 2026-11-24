@@ -56,7 +56,7 @@ export default async function StatsPage() {
 
   return (
     <div className="space-y-4">
-      <AutoRefresh seconds={60} />
+      <AutoRefresh seconds={300} />
       <PageHeader title="Stats" description={"Built from every reported event. Day, week and month boundaries use " + tz + "."} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

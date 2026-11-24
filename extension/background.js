@@ -124,7 +124,7 @@ function getVersion() {
 // on the VPS: a 1.6.11 manifest with the 1.6.6 worker.) So the code carries
 // its own version, and a mismatch reloads the extension. The two are bumped
 // together; extension/test/version.test.js checks that.
-const CODE_VERSION = '1.6.21';
+const CODE_VERSION = '1.6.22';
 
 async function ensureFreshCode() {
   const manifest = getVersion();
@@ -974,19 +974,31 @@ async function getDeviceId() {
 
 // The beat is the command channel as well as the status feed: a start or stop
 // clicked on the dashboard is picked up on the next one, and nothing else can
-// wake a sleeping worker. It has to keep running while the account is idle -
-// but a paused account has nothing to say at the rate a sending one needs.
-// One beat a minute per install is 1,440 requests a day, sending or not, and
-// that is what a paused fleet's traffic turns out to be; five minutes while
-// stopped is 288, and the only cost is that a start waits for a check-in.
+// wake a sleeping worker. So it cannot stop - but it can follow what the
+// account is doing instead of the clock.
+//
+// A sending account is only interesting in the minutes around a send; between
+// sends, and through a whole overnight rest block, it has nothing new to say.
+// Beating every minute regardless is 1,440 requests a day per install, and a
+// twelve-install fleet that is mostly resting spends 17,000 of them saying
+// "still here". So: fast while a send is due within a few minutes, idle rate
+// the rest of the time. Events (a send, a failure, a start) still beat at once
+// through scheduleHeartbeatSoon, so the dashboard learns about a send when it
+// happens rather than on the next slow beat.
 const RUNNING_HEARTBEAT_MIN = 0.5;      // Chrome clamps anything lower
-const IDLE_HEARTBEAT_MIN = 5;
+const IDLE_HEARTBEAT_MIN = 10;
+// How close a planned send has to be before the fast rate takes over.
+const RESTING_GRACE_MS = 5 * 60000;
 
 async function heartbeatPeriodMinutes() {
   const st = await getState();
   const running = Math.max(RUNNING_HEARTBEAT_MIN, Number(CFG.heartbeatMinutes) || RUNNING_HEARTBEAT_MIN);
-  if (st.running) return running;
-  return Math.max(running, Number(CFG.idleHeartbeatMinutes) || IDLE_HEARTBEAT_MIN);
+  const idle = Math.max(running, Number(CFG.idleHeartbeatMinutes) || IDLE_HEARTBEAT_MIN);
+  if (!st.running) return idle;
+  const due = Number(st.nextSendAt) || 0;
+  // Running with no send scheduled at all is a plan being made, not a rest.
+  if (!due) return running;
+  return due - Date.now() > RESTING_GRACE_MS ? idle : running;
 }
 
 // Re-arms the alarm whenever the period it should run at changes, so a start

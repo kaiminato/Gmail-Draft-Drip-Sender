@@ -161,7 +161,7 @@ export default async function AccountsPage({
 
   return (
     <div className="space-y-4">
-      <AutoRefresh seconds={fastRefresh ? 60 : 300} />
+      <AutoRefresh seconds={fastRefresh ? 120 : 600} />
       {highlightId && <HighlightRow id={highlightId} />}
 
       <PageHeader title="Accounts" description="Every extension install, as reported on its last heartbeat.">
