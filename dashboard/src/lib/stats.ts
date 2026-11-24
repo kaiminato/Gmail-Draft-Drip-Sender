@@ -55,7 +55,7 @@ export async function overallStats(tz: string): Promise<TypeCounts> {
     group by e.type
   `);
   const out: TypeCounts = {};
-  for (const r of res.rows) out[r.type] = { today: r.today, week: r.week, month: r.month, total: r.total };
+  for (const r of res) out[r.type] = { today: r.today, week: r.week, month: r.month, total: r.total };
   return out;
 }
 
@@ -80,7 +80,7 @@ export async function statsByManager(tz: string): Promise<ManagerStats[]> {
     left join managers m on m.id = a.manager_id, b
     group by m.id, m.name, e.type
   `);
-  const folded = fold(res.rows);
+  const folded = fold(res);
   const out: ManagerStats[] = [];
   for (const [key, v] of folded) {
     out.push({ managerId: key || null, name: v.name || "Unassigned", types: v.types });
@@ -107,7 +107,7 @@ export async function statsByAccount(tz: string): Promise<AccountStats[]> {
     join accounts a on a.id = e.account_id, b
     group by a.id, a.email, e.type
   `);
-  const folded = fold(res.rows);
+  const folded = fold(res);
   const out: AccountStats[] = [];
   for (const [key, v] of folded) out.push({ accountId: key, email: v.name || null, types: v.types });
   out.sort((a, b) => counts(b.types, "sent").total - counts(a.types, "sent").total);
@@ -135,5 +135,5 @@ export async function dailySeries(tz: string, days = 30): Promise<DayPoint[]> {
     group by d.day
     order by d.day
   `);
-  return res.rows;
+  return res;
 }

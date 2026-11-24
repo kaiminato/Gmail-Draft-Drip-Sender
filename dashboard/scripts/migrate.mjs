@@ -5,9 +5,9 @@
 // Without DATABASE_URL it logs one line and exits 0, so a build with no
 // database (a fresh clone, CI without secrets) still works.
 
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
-import { migrate } from "drizzle-orm/neon-http/migrator";
+import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,7 +35,10 @@ if (!url) {
 }
 
 const migrationsFolder = resolve(root, "drizzle");
-const db = drizzle(neon(url));
+// `prepare: false` for the pooled endpoint's transaction mode (see
+// src/db/index.ts); one connection, closed at the end so the build exits.
+const client = postgres(url, { prepare: false, max: 1, connect_timeout: 15, onnotice: () => {} });
+const db = drizzle(client);
 
 // A database that refuses every query - over its plan's quota, rate limited,
 // switched off - is an outage, not a bad migration. Aborting the build on it
@@ -52,9 +55,14 @@ function outageReason(err) {
     seen.add(e);
     const code = String(e.code || "");
     const text = [e.message, e.detail, e.hint].filter(Boolean).join(" ");
+    // Postgres SQLSTATE: 53000 insufficient_resources (over quota), 53300 too
+    // many connections, 57P03 cannot connect now, 08xxx connection exceptions.
+    if (/^(53000|53300|57P03|08[0-9A-F]{3})$/i.test(code)) return text || code;
+    // The driver's own codes: a host that does not answer at all.
+    if (/^(CONNECT_TIMEOUT|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT)$/.test(code)) return text || code;
+    // Neon's HTTP driver reports the same quota as a status in the message.
     if (/(HTTP status (5\d\d|429|402))\b/i.test(text)) return text;
     if (/exceeded the quota|too many requests|endpoint is disabled|project is suspended|not currently accepting connections/i.test(text)) return text;
-    if (/^(ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT)$/.test(code)) return text || code;
   }
   return "";
 }
@@ -75,3 +83,8 @@ try {
   console.error(err);
   process.exit(1);
 }
+
+// postgres.js keeps its socket (and a keepalive timer) alive, so the build
+// would sit here until the machine killed it. Both exits above already end the
+// process; this is the success path.
+await client.end().catch(() => {});
